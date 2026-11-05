@@ -1,0 +1,870 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>calltrail — Go call graph</title>
+<script>(function () { var t = null; try { t = localStorage.getItem('calltrail.theme'); } catch (e) {} if (!t) t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; document.documentElement.dataset.theme = t; })();</script>
+<style>
+:root{
+  --canvas:#020617;--mask:#0F172A;--ink:#fff;--muted:#94A3B8;--dim:#475569;--border:#1E293B;
+  --frontend:#22D3EE;--backend:#34D399;--database:#A78BFA;--cloud:#FBBF24;--security:#FB7185;--messagebus:#FB923C;--external:#94A3B8;
+  --edge:#64748B;--edge-bound:#475569;--edge-cb:#38bdf8;--grid:#1E293B;--panel-bg:rgba(15,23,42,.6);--gbox:rgba(52,211,153,.04);--gbox-focus:rgba(52,211,153,.08);
+  --shadow:rgba(0,0,0,.30);
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+/* Same semantic colours, darker so they read on white (Archify's theme-parity rule: the colour keeps its meaning). */
+:root[data-theme=light]{
+  --canvas:#F8FAFC;--mask:#FFFFFF;--ink:#0F172A;--muted:#475569;--dim:#94A3B8;--border:#E2E8F0;
+  --frontend:#0891B2;--backend:#059669;--database:#7C3AED;--cloud:#B45309;--security:#E11D48;--messagebus:#EA580C;--external:#64748B;
+  --edge:#94A3B8;--edge-bound:#CBD5E1;--edge-cb:#0284C7;--grid:#E2E8F0;--panel-bg:rgba(255,255,255,.75);--gbox:rgba(5,150,105,.05);--gbox-focus:rgba(5,150,105,.10);
+  --shadow:rgba(15,23,42,.16);
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--canvas);color:var(--ink);font-family:var(--mono);font-size:12px}
+#app{display:grid;grid-template-rows:auto 1fr;height:100%}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;padding:10px 16px;border-bottom:1px solid var(--border)}
+header h1{margin:0;font-size:14px;font-weight:700;letter-spacing:-.02em}
+header .stats{color:var(--muted)}
+header .spacer{flex:1}
+button,input[type=search]{font:inherit;color:var(--ink);background:var(--mask);border:1px solid var(--border);border-radius:8px;padding:6px 10px}
+button{cursor:pointer}button:hover{border-color:var(--frontend)}
+input[type=search]{width:200px}input[type=search]:focus{outline:none;border-color:var(--frontend);box-shadow:0 0 0 2px rgba(34,211,238,.25)}
+label.chk{display:flex;align-items:center;gap:6px;color:var(--muted);cursor:pointer}
+main{position:relative;display:grid;grid-template-columns:1fr 360px;min-height:0}
+#stage{position:relative;overflow:hidden;min-width:0;cursor:grab;
+  background-image:radial-gradient(circle,var(--grid) 1px,transparent 1px);background-size:24px 24px}
+#stage.panning{cursor:grabbing}
+svg{width:100%;height:100%;display:block}
+aside{border-left:1px solid var(--border);overflow:auto;padding:16px;background:var(--panel-bg)}
+aside h2{margin:0 0 4px;font-size:14px;word-break:break-all}
+aside .sub{color:var(--muted);margin-bottom:12px;word-break:break-all}
+aside h3{margin:16px 0 6px;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.chip{display:inline-block;padding:1px 8px;border:1px solid var(--border);border-radius:999px;font-size:10px;margin-right:4px;color:var(--muted)}
+.chip.cyan{color:var(--frontend);border-color:var(--frontend)}.chip.green{color:var(--backend);border-color:var(--backend)}
+.chip.rose{color:var(--security);border-color:var(--security)}.chip.amber{color:var(--cloud);border-color:var(--cloud)}
+.chip.orange{color:var(--messagebus);border-color:var(--messagebus)}.chip.violet{color:var(--database);border-color:var(--database)}
+.item{padding:6px 8px;margin:0 -8px;border-radius:6px;cursor:pointer;word-break:break-all}
+.item:hover{background:var(--mask)}
+.item small{display:block;color:var(--muted);margin-top:2px;cursor:default}
+.hint{color:var(--muted);line-height:1.7}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;color:var(--muted);font-size:11px}
+.legend i{display:inline-block;vertical-align:middle;margin-right:5px}
+.legend .sw{width:10px;height:10px;border-radius:2px;border:1.5px solid}
+.legend .ln{width:22px;height:0;border-top:2px solid var(--muted)}
+
+.seg{display:inline-flex}.seg button{border-radius:0}.seg button:first-child{border-radius:8px 0 0 8px}.seg button:last-child{border-radius:0 8px 8px 0;margin-left:-1px}
+.seg button.on{border-color:var(--frontend);color:var(--frontend);position:relative}
+select{font:inherit;color:var(--ink);background:var(--mask);border:1px solid var(--border);border-radius:6px;padding:3px 4px}
+body:not(.focusing) .fctl{display:none}body.focusing .octl{display:none}
+body.busy #stage{opacity:.55;transition:opacity .15s}
+#info{position:absolute;left:14px;top:12px;max-width:70%;color:var(--muted);font-size:11px;line-height:1.7;pointer-events:none}
+#info b{color:var(--ink)}#info .warn{color:var(--cloud)}
+#empty{position:absolute;inset:0;display:none;align-items:center;justify-content:center;color:var(--muted);text-align:center;line-height:1.9;pointer-events:none}
+.node.focus rect.box{stroke-width:2.6;filter:drop-shadow(0 0 8px currentColor)}
+.group.focus rect.gbox{stroke-width:2.4;fill:var(--gbox-focus)}
+.fbtn{margin:8px 6px 0 0;border-color:var(--frontend);color:var(--frontend)}
+.fbtn.ghost{border-color:var(--border);color:var(--muted)}
+@media (max-width:1000px){
+  main{grid-template-columns:1fr;grid-template-rows:minmax(320px,1fr) 38%}
+  aside{border-left:0;border-top:1px solid var(--border)}
+}
+/* svg */
+.node rect.box{fill:var(--mask);stroke-width:1.2;rx:8}
+.node text{pointer-events:none}
+.node .t1{font-size:12px;font-weight:600;fill:var(--ink)}
+.node .t2{font-size:10px;fill:var(--muted)}
+.node:hover rect.box{filter:brightness(1.35)}
+:root[data-theme=light] .node:hover rect.box{filter:brightness(.93)}
+.node.sel rect.box{stroke-width:2.4;filter:drop-shadow(0 0 7px currentColor)}
+.node.match rect.box{stroke:var(--cloud)!important;stroke-width:2.4}
+.node .tog{fill:var(--canvas);stroke:var(--border);rx:5;cursor:pointer}
+.node .tog:hover{stroke:var(--frontend)}
+.node .togt{font-size:12px;fill:var(--muted);text-anchor:middle;pointer-events:none}
+.group rect.gbox{fill:var(--gbox);stroke:var(--backend);stroke-width:1.2;stroke-dasharray:2 0;rx:12}
+.group .gt{font-size:11px;font-weight:700;fill:var(--backend);letter-spacing:.04em}
+.group .ghit{fill:transparent;cursor:pointer}
+.edge path.vis{fill:none;stroke:var(--edge);stroke-width:1.3}
+.edge path.hit{fill:none;stroke:transparent;stroke-width:12;cursor:pointer}
+.edge.dynamic path.vis{stroke-dasharray:6 4}
+.edge.registers path.vis{stroke:var(--messagebus);stroke-dasharray:9 3 2 3}
+.edge.boundary path.vis{stroke:var(--edge-bound)}
+.edge.callback path.vis{stroke:var(--edge-cb);stroke-dasharray:1.5 4;stroke-linecap:round;opacity:.85}
+.edge text{font-size:10px;fill:var(--muted);text-anchor:middle;paint-order:stroke;stroke:var(--canvas);stroke-width:4px;pointer-events:none}
+.edge.hi path.vis{stroke:var(--frontend);stroke-width:2}
+.edge.hi.registers path.vis{stroke:var(--messagebus);stroke-width:2}
+.edge.selE path.vis{stroke:var(--ink);stroke-width:2.4}
+.dim{opacity:.14}
+.mk-m{fill:var(--edge)}.mk-h{fill:var(--frontend)}.mk-r{fill:var(--messagebus)}.mk-w{fill:var(--ink)}
+/* filter / rules panel */
+#filterPanel{position:fixed;top:52px;right:16px;width:380px;max-height:calc(100vh - 70px);overflow:auto;background:var(--mask);border:1px solid var(--border);border-radius:12px;padding:14px 16px;z-index:20;box-shadow:0 18px 48px var(--shadow)}
+#filterPanel[hidden]{display:none}
+#filterPanel h3{margin:14px 0 6px;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+#filterPanel h3:first-child{margin-top:0}
+#filterPanel .cnt{margin-left:auto;color:var(--dim);font-size:10px}
+#filterPanel .small{font-size:10px;line-height:1.5;margin:0 0 8px 22px}
+#filterPanel .rule{display:flex;align-items:center;gap:6px}
+#filterPanel .thr input[type=number]{width:64px;font:inherit;color:var(--ink);background:var(--canvas);border:1px solid var(--border);border-radius:6px;padding:3px 6px}
+#filterPanel .thr input[type=number]:focus{outline:none;border-color:var(--frontend)}
+#filterPanel .rule label{flex:1;min-width:0;word-break:break-all}
+#filterPanel button.x{padding:0 6px;border-radius:6px;color:var(--muted)}
+#filterPanel .addrule{display:flex;gap:6px;margin-top:8px}
+#filterPanel .addrule input{flex:1;min-width:0;font:inherit;color:var(--ink);background:var(--canvas);border:1px solid var(--border);border-radius:8px;padding:6px 8px}
+#filterPanel .addrule input:focus{outline:none;border-color:var(--frontend)}
+#filterPanel .row{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1 id="title">calltrail</h1>
+    <span class="stats" id="stats"></span>
+    <span class="spacer"></span>
+    <span class="seg"><button id="mOver">总览</button><button id="mFocus">聚焦</button></span>
+    <button id="back" class="fctl" style="display:none">← 返回</button>
+    <label class="chk fctl">下游<select id="selDown"><option value="1">1</option><option value="2" selected>2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="99">全部</option></select></label>
+    <label class="chk fctl">上游<select id="selUp"><option>0</option><option selected>1</option><option>2</option><option>3</option></select></label>
+    <label class="chk" id="commonLbl"><input type="checkbox" id="hideCommon" checked>隐藏常见依赖</label>
+    <button id="filter" title="外部依赖、默认隐藏的内容、按调用次数隐藏、忽略规则">过滤 ▾</button>
+    <button id="expandAll" class="octl">全部展开</button>
+    <button id="collapseAll" class="octl">全部折叠</button>
+    <button id="fit">适应窗口</button>
+    <button id="theme" title="深色 / 浅色（默认跟随系统）">☀ 浅色</button>
+    <input type="search" id="q" placeholder="搜索函数，回车展开匹配">
+  </header>
+  <main>
+    <div id="stage"><svg id="svg"><defs>
+      <marker id="m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="mk-m"/></marker>
+      <marker id="mh" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="mk-h"/></marker>
+      <marker id="mr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="mk-r"/></marker>
+      <marker id="mw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="mk-w"/></marker>
+    </defs><g id="vp"></g></svg>
+      <div id="info"></div>
+      <div id="empty"><div><b style="color:var(--ink);font-size:14px">聚焦模式</b><br>项目较大，不画全图。<br>从右侧选一个入口 / 包，或用搜索框找函数。<br>之后双击任意节点，可把它设为新的中心。</div></div></div>
+    <aside id="panel"></aside>
+  </main>
+</div>
+<div id="filterPanel" hidden></div>
+<script>/*__ELK_JS__*/</script>
+<script>
+const G = /*__GRAPH_JSON__*/null;
+
+/* ───────────── data index ───────────── */
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const base = p => p.split('/').pop();
+
+const fnById = new Map(G.functions.map(f => [f.id, f]));
+const pkgById = new Map(G.packages.map(p => [p.id, p]));
+const bById = new Map(G.boundaries.map(b => [b.id, b]));
+const allFuncsOfPkg = new Map(G.packages.map(p => [p.id, []]));
+G.functions.forEach(f => allFuncsOfPkg.get(f.package).push(f));
+const funcsOfPkg = new Map(G.packages.map(p => [p.id, []]));   // visible functions only; refilled by recomputeHidden()
+const outE = new Map(), inE = new Map();
+G.edges.forEach(e => {
+  (outE.get(e.from) || outE.set(e.from, []).get(e.from)).push(e);
+  (inE.get(e.to) || inE.set(e.to, []).get(e.to)).push(e);
+});
+const ENTRIES = (G.meta.entries || []).filter(id => fnById.has(id));   // where the user said the program starts (-entry)
+const unitOf = id => fnById.has(id) ? 'pkg:' + fnById.get(id).package : (bById.has(id) ? 'b:' + id : null);
+
+const CATCOL = {db:'--database', http:'--cloud', mq:'--messagebus', fs:'--external', other:'--external'};
+const CATNAME = {db:'数据库', http:'HTTP / RPC', mq:'消息队列', fs:'文件系统', other:'其它'};
+const ROLECOL = {entry:'--frontend', init:'--frontend', registered:'--frontend', implicit:'--messagebus', generated:'--external', iface:'--external', api:'--backend', referenced:'--external', unused:'--dim'};
+const ROLENAME = {entry:'入口', init:'包初始化', registered:'被注册', implicit:'隐式（可能被图里看不到的调用方调用：外部代码经接口/反射，或仅类层次推测）', generated:'仅被生成的代码调用', iface:'接口方法（没人按名字调用）', api:'导出 API', referenced:'被当作值引用', unused:'无调用方（疑似未使用）'};
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+/* ───────────── state ───────────── */
+const S = { expanded: new Set(), sel: null, q: '', showB: true,
+  mode: ENTRIES.length || G.packages.length > 20 ? 'focus' : 'overview', focus: null, hist: [], down: 2, up: 1, vis: null,
+  show: new Set(),        // built-in hiding reasons the user chose to show anyway
+  userRules: [], ruleOff: new Set(), hideSig: '',
+  maxFanB: 0, maxFanF: 0,
+  onlyReach: ENTRIES.length > 0 };   // with entries: hide what they cannot reach   // hide what more than N functions call (0 = off): external dependencies / own functions
+const FLAGNAME = {'external-iface': '外部接口', 'table': '查表分发', 'implicit-iface': '隐式接口', 'cha-fallback': '仅类层次推测', 'reflect': '反射', 'linkname': 'linkname'};
+
+/* ───────────── hiding ─────────────
+   1. built-in policy: the model marks nodes / edges `hidden` with a reason (G.policy lists the reasons);
+   2. rules: ignore a module, a package prefix or a tag. G.rules come from the rules file, the user adds more
+      here. Rules are applied here, not baked into the model, so they can be switched on and off.
+   Rule matching is the same as internal/model (path prefix at an element boundary; trailing * = plain prefix;
+   fields in one rule are ANDed). */
+const LSKEY = 'calltrail.' + G.meta.module;
+const store = {
+  get() { try { return JSON.parse(localStorage.getItem(LSKEY) || '{}'); } catch (e) { return {}; } },
+  set(v) { try { localStorage.setItem(LSKEY, JSON.stringify(v)); } catch (e) {} },
+};
+{ const sv = store.get(); S.show = new Set(sv.show || []); S.userRules = sv.user || []; S.ruleOff = new Set(sv.off || []); S.showB = sv.showB !== false; S.maxFanB = sv.maxFanB || 0; S.maxFanF = sv.maxFanF || 0; if (ENTRIES.length && sv.onlyReach !== undefined) S.onlyReach = sv.onlyReach; }
+const persist = () => store.set({show: [...S.show], user: S.userRules, off: [...S.ruleOff], showB: S.showB, maxFanB: S.maxFanB, maxFanF: S.maxFanF, onlyReach: S.onlyReach});
+const allRules = () => [...(G.rules || []).map(r => ({...r, src: 'file'})), ...S.userRules.map(r => ({...r, src: 'user'}))];
+const activeRules = () => allRules().filter(r => !S.ruleOff.has(r.id));
+const pathMatch = (pat, s) => pat.endsWith('*') ? s.startsWith(pat.slice(0, -1)) : (s === pat || s.startsWith(pat + '/'));
+const ruleMatches = (r, path, module, tags) => !!(r.module || r.package || r.tag) && !r.function   // a function rule never matches packages / dependencies
+  && (!r.module || pathMatch(r.module, module || ''))
+  && (!r.package || pathMatch(r.package, path))
+  && (!r.tag || (tags || []).includes(r.tag));
+/* a rule that names a function: exact id, or a prefix with a trailing *; other fields are ANDed (as in internal/model) */
+const fnRuleMatches = (r, f) => !!r.function
+  && (r.function.endsWith('*') ? f.id.startsWith(r.function.slice(0, -1)) : f.id === r.function)
+  && (!r.package || pathMatch(r.package, f.package))
+  && (!r.module || pathMatch(r.module, f.module || ''))
+  && (!r.tag || (f.tags || []).includes(r.tag));
+let hiddenPkg = new Set(), hiddenB = new Set(), hiddenFn = new Set();
+function recomputeHidden() {
+  const rs = activeRules();
+  hiddenPkg = new Set(G.packages.filter(p => rs.some(r => ruleMatches(r, p.id, p.module, p.tags))).map(p => p.id));
+  hiddenB = new Set(G.boundaries.filter(b => (b.hidden && !S.show.has(b.hidden_by)) || rs.some(r => ruleMatches(r, b.path, b.module, b.tags)) || (S.maxFanB > 0 && b.fan_in > S.maxFanB) || unreach(b)).map(b => b.id));
+  const frs = rs.filter(r => r.function);
+  hiddenFn = new Set(frs.length ? G.functions.filter(f => frs.some(r => fnRuleMatches(r, f))).map(f => f.id) : []);
+  for (const p of G.packages) funcsOfPkg.set(p.id, allFuncsOfPkg.get(p.id).filter(f => !fnHidden(f)));
+  S.hideSig = JSON.stringify([[...S.show].sort(), rs.map(r => [r.module || '', r.package || '', r.function || '', r.tag || '']), S.maxFanB, S.maxFanF, ENTRIES.length && S.onlyReach]);
+  reachCache.clear();
+}
+const unreach = x => ENTRIES.length > 0 && S.onlyReach && !x.reachable;
+const fnHiddenBase = f => hiddenPkg.has(f.package) || hiddenFn.has(f.id) || (f.hidden && !S.show.has(f.hidden_by)) || (S.maxFanF > 0 && f.fan_in > S.maxFanF);
+const fnHidden = f => fnHiddenBase(f) || unreach(f);
+const nodeHidden = id => { const f = fnById.get(id); return f ? fnHidden(f) : hiddenB.has(id); };
+const edgeOK = e => !(e.hidden && !S.show.has(e.hidden_by)) && !nodeHidden(e.from) && !nodeHidden(e.to);
+const visPkgs = () => G.packages.filter(p => !hiddenPkg.has(p.id) && !unreach(p));
+
+/* focus = BFS over the function graph around one node */
+function seedIds(seed) { return seed.type === 'pkg' ? funcsOfPkg.get(seed.id).map(f => f.id) : [seed.id]; }
+function seedNodeId() {
+  if (S.mode !== 'focus' || !S.focus) return null;
+  return S.focus.type === 'fn' ? 'f:' + S.focus.id : S.focus.type === 'b' ? 'b:' + S.focus.id : null;
+}
+function seedLabel(seed) { return seed.type === 'fn' ? fnById.get(seed.id).label : seed.type === 'b' ? bById.get(seed.id).path : seed.id; }
+function computeFocus() {
+  const fns = new Set(), bs = new Set();
+  const seeds = seedIds(S.focus);
+  seeds.forEach(id => fnById.has(id) ? fns.add(id) : bById.has(id) && bs.add(id));
+  let fr = seeds.filter(id => fnById.has(id));
+  for (let d = 0; d < S.down && fr.length; d++) {
+    const next = [];
+    for (const u of fr) for (const e of outE.get(u) || []) {
+      if (!edgeOK(e)) continue;
+      if (fnById.has(e.to)) { if (!fns.has(e.to)) { fns.add(e.to); next.push(e.to); } }
+      else if (bById.has(e.to)) bs.add(e.to);
+    }
+    fr = next;
+  }
+  fr = seeds;
+  for (let d = 0; d < S.up && fr.length; d++) {
+    const next = [];
+    for (const u of fr) for (const e of inE.get(u) || []) {
+      if (!edgeOK(e) || !fnById.has(e.from) || fns.has(e.from)) continue;
+      fns.add(e.from); next.push(e.from);
+    }
+    fr = next;
+  }
+  return {fns, bs};
+}
+let view = { x: 0, y: 0, k: 1 };
+let scene = null;
+
+/* ───────────── scene building ───────────── */
+const PAD = 16, HEAD = 30;
+function fnSize(f) {
+  const w = Math.min(320, Math.max(150, Math.max(f.label.length * 7.4, base(f.pos).length * 6.2) + 30));
+  return {w, h: 38};
+}
+/* ───────────── layout: ELK (layered, nested package groups, orthogonal routing) ───────────── */
+let elk = null;
+const ELK_OPTS = {
+  'elk.algorithm': 'layered', 'elk.direction': 'RIGHT',
+  'elk.hierarchyHandling': 'INCLUDE_CHILDREN',      // edges between functions of different packages take part in the layout
+  'elk.randomSeed': '1',                             // deterministic
+  'elk.json.shapeCoords': 'ROOT', 'elk.json.edgeCoords': 'ROOT',
+  'elk.spacing.nodeNode': '20', 'elk.layered.spacing.nodeNodeBetweenLayers': '70',
+  'elk.spacing.edgeNode': '16', 'elk.spacing.edgeEdge': '10',
+  'elk.layered.spacing.edgeNodeBetweenLayers': '16', 'elk.layered.spacing.edgeEdgeBetweenLayers': '10',
+  'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
+  'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
+};
+async function elkLayout(root) {
+  elk = elk || new ELK();
+  return elk.layout(root);
+}
+function collectPos(node, out) {
+  for (const c of node.children || []) { out.set(c.id, {x: c.x, y: c.y, w: c.width, h: c.height}); collectPos(c, out); }
+}
+function roundedPath(pts, r = 7) {
+  let d = `M${pts[0].x},${pts[0].y}`;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1], p1 = pts[i], p2 = pts[i + 1];
+    const l1 = Math.hypot(p0.x - p1.x, p0.y - p1.y), l2 = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+    const rr = Math.min(r, l1 / 2, l2 / 2);
+    if (rr < 1) { d += ` L${p1.x},${p1.y}`; continue; }
+    d += ` L${p1.x + (p0.x - p1.x) / l1 * rr},${p1.y + (p0.y - p1.y) / l1 * rr} Q${p1.x},${p1.y} ${p1.x + (p2.x - p1.x) / l2 * rr},${p1.y + (p2.y - p1.y) / l2 * rr}`;
+  }
+  const L = pts[pts.length - 1];
+  return d + ` L${L.x},${L.y}`;
+}
+function midOf(pts) { // midpoint of the longest segment, for the label
+  let best = 0, at = {x: pts[0].x, y: pts[0].y};
+  for (let i = 1; i < pts.length; i++) {
+    const l = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+    if (l > best) { best = l; at = {x: (pts[i].x + pts[i - 1].x) / 2, y: (pts[i].y + pts[i - 1].y) / 2}; }
+  }
+  return at;
+}
+
+async function build() {
+  const focusing = S.mode === 'focus';
+  const vis = focusing ? S.vis : null;
+  if (focusing && !vis) return {nodes: [], groups: [], edges: [], rect: new Map(), w: 0, h: 0};
+  const vOK = id => !vis || vis.fns.has(id) || vis.bs.has(id);
+  const flc = new Map();
+  const fl = pid => { let r = flc.get(pid); if (!r) flc.set(pid, r = vis ? funcsOfPkg.get(pid).filter(f => vis.fns.has(f.id)) : funcsOfPkg.get(pid)); return r; };
+  const isExp = pid => focusing ? fl(pid).length > 0 : S.expanded.has(pid);
+  const pkgs = focusing ? G.packages.filter(p => fl(p.id).length) : visPkgs();
+  const bnds = !S.showB ? [] : (focusing ? G.boundaries.filter(b => vis.bs.has(b.id)) : G.boundaries.filter(b => !hiddenB.has(b.id)));
+
+  // drawable nodes
+  const info = new Map();   // node id -> {kind, ref, w, h}
+  const children = [];
+  for (const p of pkgs) {
+    const id = 'pkg:' + p.id;
+    if (isExp(p.id)) {
+      const kids = fl(p.id).map(f => { const sz = fnSize(f); info.set('f:' + f.id, {kind: 'fn', ref: f, ...sz}); return {id: 'f:' + f.id, width: sz.w, height: sz.h}; });
+      info.set(id, {kind: 'group', ref: p});
+      children.push({id, children: kids, layoutOptions: {'elk.padding': '[top=40,left=16,bottom=16,right=16]'}});
+    } else {
+      const sz = {w: Math.min(340, Math.max(190, p.id.length * 8 + 56)), h: 58};
+      info.set(id, {kind: 'pkg', ref: p, ...sz});
+      children.push({id, width: sz.w, height: sz.h});
+    }
+  }
+  for (const b of bnds) {
+    const sz = {w: Math.min(340, Math.max(170, b.path.length * 7.2 + 36)), h: 48};
+    info.set('b:' + b.id, {kind: 'b', ref: b, ...sz});
+    children.push({id: 'b:' + b.id, width: sz.w, height: sz.h});
+  }
+  const nodeOf = id => {
+    const f = fnById.get(id);
+    if (f) return isExp(f.package) ? 'f:' + id : 'pkg:' + f.package;
+    return bById.has(id) && S.showB ? 'b:' + id : null;
+  };
+  const agg = new Map();
+  for (const e of G.edges) {
+    if (!edgeOK(e) || !vOK(e.from) || !vOK(e.to)) continue;
+    const a = nodeOf(e.from), b = nodeOf(e.to);
+    if (!a || !b || a === b || !info.has(a) || !info.has(b)) continue;
+    const k = a + '\0' + b;
+    let x = agg.get(k);
+    if (!x) agg.set(k, x = {key: k, from: a, to: b, items: []});
+    x.items.push(e);
+  }
+  const edges = [...agg.values()];
+  edges.forEach((e, i) => {
+    const ks = new Set(e.items.map(i => i.kind));
+    e.cls = ks.has('direct') ? 'direct' : ks.has('boundary') ? 'boundary' : ks.has('dynamic') ? 'dynamic' : ks.has('callback') ? 'callback' : 'registers';
+    e.sites = e.items.reduce((s, i) => s + i.sites.length, 0);
+    e.rev = e.items.every(i => i.kind === 'callback'); // "A invokes a closure defined in F": F handed it over, so lay out F -> A
+    e.eid = 'e' + i;
+  });
+
+  const opts = {...ELK_OPTS, 'elk.edgeRouting': edges.length > 1500 ? 'POLYLINE' : 'ORTHOGONAL'};
+  const root = {id: 'root', layoutOptions: opts, children,
+    edges: edges.map(e => ({id: e.eid, sources: [e.rev ? e.to : e.from], targets: [e.rev ? e.from : e.to]}))};
+  if (info.size > 120) { // ELK blocks the page; say so and let it paint first
+    $('#info').innerHTML = `布局中… <b>${info.size}</b> 个节点 · <b>${edges.length}</b> 条边。节点很多时可能要十几秒，建议改用「聚焦」模式。`;
+    await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+  }
+  let res = null, failed = null;
+  try { res = await elkLayout(root); } catch (err) { failed = err; console.error('ELK layout failed', err); }
+
+  const pos = new Map();
+  if (res) collectPos(res, pos);
+  else { // fallback so the page is never blank: plain grid, straight edges
+    let x = 0, y = 0;
+    for (const c of children) { const w = c.width || 220, h = c.height || 80; pos.set(c.id, {x, y, w, h}); x += w + 30; if (x > 1400) { x = 0; y += 140; } }
+  }
+  const rect = new Map(), nodes = [], groups = [];
+  for (const [id, inf] of info) {
+    const r = pos.get(id);
+    if (!r) continue;
+    rect.set(id, r);
+    if (inf.kind === 'group') groups.push({id, ...r, pkg: inf.ref, seed: focusing && S.focus && S.focus.type === 'pkg' && S.focus.id === inf.ref.id});
+    else nodes.push({id, kind: inf.kind, ref: inf.ref, ...r});
+  }
+  const byId = new Map((res && res.edges || []).map(e => [e.id, e]));
+  for (const e of edges) {
+    const re = byId.get(e.eid);
+    const secs = re && re.sections;
+    if (!secs || !secs.length) continue;
+    let pts = [];
+    for (const sc of secs) pts.push(sc.startPoint, ...(sc.bendPoints || []), sc.endPoint);
+    if (e.rev) pts = pts.reverse();
+    e.pts = pts;
+  }
+  return {nodes, groups, edges, rect, failed};
+}
+
+/* ───────────── rendering ───────────── */
+function edgePath(a, b) {
+  const x1 = a.x + a.w, y1 = a.y + a.h / 2, x2 = b.x, y2 = b.y + b.h / 2;
+  if (x2 >= x1 + 10) {
+    const dx = Math.max(30, (x2 - x1) / 2);
+    return `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`;
+  }
+  // backward / same column: leave right, arrive left, loop around
+  const o = 50;
+  return `M${x1},${y1} C${x1 + o},${y1} ${x1 + o},${(y1 + y2) / 2} ${(x1 + x2) / 2},${(y1 + y2) / 2} S${x2 - o},${y2} ${x2},${y2}`;
+}
+function neighbors(id) { // transitive up/downstream over drawn edges
+  const up = new Set([id]), down = new Set([id]);
+  const walk = (set, f, t) => { const q = [id]; while (q.length) { const u = q.pop(); for (const e of scene.edges) if (e[f] === u && !set.has(e[t])) { set.add(e[t]); q.push(e[t]); } } };
+  walk(up, 'to', 'from'); walk(down, 'from', 'to');
+  return {up, down};
+}
+let layoutKey = null, renderToken = 0;
+async function render(keepView) {
+  const my = ++renderToken;
+  S.vis = S.mode === 'focus' && S.focus ? computeFocus() : null;
+  document.body.classList.toggle('focusing', S.mode === 'focus');
+  // only re-run the layout when something that changes the drawn graph changed (not on selection / search)
+  const key = [S.mode, S.showB, S.hideSig, [...S.expanded].sort().join('|'), S.mode === 'focus' ? JSON.stringify([S.focus, S.down, S.up]) : ''].join('#');
+  const relayout = key !== layoutKey || !scene;
+  if (relayout) {
+    document.body.classList.add('busy');
+    const sc = await build();
+    if (my !== renderToken) return;   // a newer render superseded this one
+    document.body.classList.remove('busy');
+    scene = sc; layoutKey = key;
+  }
+  const matches = new Set();
+  const qs = S.q.trim().toLowerCase();
+  if (qs.length >= 2) for (const f of G.functions) if (!fnHidden(f) && f.id.toLowerCase().includes(qs)) matches.add(f.id);
+  const matchPkgs = new Set([...matches].map(id => 'pkg:' + fnById.get(id).package));
+
+  let hiN = null, hiE = null;
+  if (S.sel && S.sel.type === 'node' && scene.rect.has(S.sel.id) && S.sel.id !== seedNodeId()) {
+    const {up, down} = neighbors(S.sel.id);
+    hiN = new Set([...up, ...down]);
+    hiE = new Set(scene.edges.filter(e => (up.has(e.from) && up.has(e.to)) || (down.has(e.from) && down.has(e.to))).map(e => e.key));
+  } else if (S.sel && S.sel.type === 'edge') {
+    const e = scene.edges.find(e => e.key === S.sel.id);
+    if (e) { hiN = new Set([e.from, e.to]); hiE = new Set([e.key]); }
+  }
+  const col = v => `var(${v})`;
+  let h = '';
+  const seedN = seedNodeId();
+  for (const g of scene.groups) {
+    h += `<g class="group${g.seed ? ' focus' : ''}${hiN && !hiN.has(g.id) && ![...scene.nodes].some(n => n.kind==='fn' && n.ref.package===g.pkg.id && hiN.has(n.id)) ? ' dim' : ''}">
+      <rect class="gbox" x="${g.x}" y="${g.y}" width="${g.w}" height="${g.h}"/>
+      <text class="gt" x="${g.x + 12}" y="${g.y + 19}">▾ ${esc(g.pkg.id)}</text>
+      <rect class="ghit" data-toggle="${esc(g.pkg.id)}" data-node="${esc(g.id)}" x="${g.x}" y="${g.y}" width="${g.w}" height="${HEAD}"/></g>`;
+  }
+  h += '<g>';
+  for (const e of scene.edges) {
+    const a = scene.rect.get(e.from), b = scene.rect.get(e.to);
+    const d = e.pts ? roundedPath(e.pts) : edgePath(a, b);
+    const hi = hiE && hiE.has(e.key);
+    const sel = S.sel && S.sel.type === 'edge' && S.sel.id === e.key;
+    const cls = ['edge', e.cls, hi ? 'hi' : '', sel ? 'selE' : '', hiE && !hi ? 'dim' : ''].join(' ');
+    const marker = sel ? 'mw' : (hi ? (e.cls === 'registers' ? 'mr' : 'mh') : (e.cls === 'registers' ? 'mr' : 'm'));
+    const modes = new Set(e.items.map(i => i.mode).filter(m => m !== 'call'));
+    let lab = '';
+    if (e.items.length > 1 && (e.from.startsWith('pkg:') || e.to.startsWith('pkg:'))) lab = '×' + e.items.length;
+    if (modes.size) lab += (lab ? ' ' : '') + [...modes].join('/');
+    if (e.cls === 'callback') lab = '闭包回调' + (lab ? ' ' + lab : '');
+    if (e.cls === 'dynamic') { const c = Math.max(...e.items.map(i => i.candidates || 0)); if (c) lab += (lab ? ' ' : '') + c + '?'; }
+    const mp = e.pts ? midOf(e.pts) : {x: (a.x + a.w + b.x) / 2, y: (a.y + b.y + (a.h + b.h) / 2) / 2};
+    const mx = mp.x, my = mp.y;
+    h += `<g class="${cls}" data-edge="${esc(e.key)}"><path class="hit" d="${d}"/><path class="vis" d="${d}" marker-end="url(#${marker})"/>${lab ? `<text x="${mx}" y="${my - 5}">${esc(lab)}</text>` : ''}</g>`;
+  }
+  h += '</g>';
+  for (const n of scene.nodes) {
+    let color, t1, t2, tog = '';
+    if (n.kind === 'pkg') {
+      color = css('--backend'); t1 = n.ref.id;
+      const fs = funcsOfPkg.get(n.ref.id).length;
+      t2 = fs + ' functions';
+      if (S.mode !== 'focus') tog = `<rect class="tog" data-toggle="${esc(n.ref.id)}" x="${n.x + n.w - 24}" y="${n.y + 6}" width="18" height="18"/><text class="togt" x="${n.x + n.w - 15}" y="${n.y + 19}">+</text>`;
+    } else if (n.kind === 'b') {
+      color = css(CATCOL[n.ref.category]); t1 = n.ref.path; t2 = (n.ref.kind === 'std' ? '标准库' : '第三方') + ' · ' + CATNAME[n.ref.category];
+    } else {
+      color = css(ROLECOL[n.ref.role] || '--backend'); t1 = n.ref.label; t2 = n.ref.pos || '包级变量初始化 + init()';
+    }
+    const selc = (S.sel && S.sel.type === 'node' && S.sel.id === n.id ? ' sel' : '') + (seedN === n.id ? ' focus' : '');
+    const mat = (n.kind === 'fn' && matches.has(n.ref.id)) || (n.kind === 'pkg' && matchPkgs.has(n.id)) ? ' match' : '';
+    const dim = hiN && !hiN.has(n.id) ? ' dim' : '';
+    const dash = n.kind === 'fn' && n.ref.role === 'unused' ? ' stroke-dasharray="4 3"' : '';
+    h += `<g class="node${selc}${mat}${dim}" data-node="${esc(n.id)}" style="color:${color}">
+      <rect class="box" x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" stroke="${color}"${dash}/>
+      <text class="t1" x="${n.x + 12}" y="${n.y + (n.h > 40 ? 24 : 16)}">${esc(t1.length > 44 ? t1.slice(0, 43) + '…' : t1)}</text>
+      <text class="t2" x="${n.x + 12}" y="${n.y + (n.h > 40 ? 42 : 30)}">${esc(t2)}</text>${tog}</g>`;
+  }
+  $('#vp').innerHTML = h;
+  if (!keepView || relayout && !scene._shown) fit();
+  scene._shown = true;
+  applyView();
+  updateChrome();
+  panel();
+}
+
+function updateChrome() {
+  const foc = S.mode === 'focus';
+  $('#mOver').classList.toggle('on', !foc); $('#mFocus').classList.toggle('on', foc);
+  $('#back').style.display = foc && S.hist.length ? '' : 'none';
+  $('#selDown').value = S.down; $('#selUp').value = S.up;
+  $('#empty').style.display = foc && !S.focus ? 'flex' : 'none';
+  const byReason = {};
+  for (const e of G.edges) if (e.hidden && !S.show.has(e.hidden_by) && (!S.vis || S.vis.fns.has(e.from))) byReason[e.hidden_by] = (byReason[e.hidden_by] || 0) + 1;
+  const ruleHidden = hiddenPkg.size + [...hiddenB].filter(id => { const b = bById.get(id); return !(b.hidden && !S.show.has(b.hidden_by)); }).length
+    + G.functions.filter(f => !hiddenPkg.has(f.package) && !(f.hidden && !S.show.has(f.hidden_by)) && fnHiddenBase(f)).length;
+  const unreached = ENTRIES.length && S.onlyReach ? G.functions.filter(f => !f.reachable && !fnHiddenBase(f)).length : 0;
+  const parts = (G.policy || []).filter(p => byReason[p.id]).map(p => `${esc(p.title)} <b>${byReason[p.id]}</b> 条边`);
+  if (unreached) parts.push(`入口到不了 <b>${unreached}</b> 个函数`);
+  if (ruleHidden) parts.push(`规则 / 阈值隐藏 <b>${ruleHidden}</b> 个包、依赖或函数`);
+  let t = '';
+  if (foc && S.focus) {
+    const n = S.vis.fns.size;
+    t += `聚焦 <b>${esc(seedLabel(S.focus))}</b> · 下游 ${S.down >= 99 ? '全部' : S.down + ' 层'} · 上游 ${S.up} 层 · 显示 <b>${n}</b> 个函数`;
+    if (n > 120) t += ` <span class="warn">（偏多，可减小层数）</span>`;
+    t += '<br>';
+  }
+  if (parts.length) t += `已隐藏：${parts.join(' · ')}。在「过滤」里可以显示或调整`;
+  $('#info').innerHTML = t;
+}
+
+/* ───────────── side panel ───────────── */
+const reachCache = new Map();
+function reach(id) {
+  if (reachCache.has(id)) return reachCache.get(id);
+  const seen = new Set([id]), q = [id];
+  while (q.length) { const u = q.pop(); for (const e of outE.get(u) || []) if (fnById.has(e.to) && !seen.has(e.to) && edgeOK(e)) { seen.add(e.to); q.push(e.to); } }
+  reachCache.set(id, seen.size - 1);
+  return seen.size - 1;
+}
+const fnItems = list => list.map(f => `<div class="item" data-focus-fn="${esc(f.id)}">${esc(f.label)} <span style="color:var(--muted)">· ${esc(f.package)}</span><small>下游 ${reach(f.id)} 个函数 · ${esc(f.pos)}</small></div>`).join('') || '<div class="hint">无</div>';
+function pickerPanel(el) {
+  const by = r => G.functions.filter(f => f.role === r && !fnHidden(f)).sort((a, b) => reach(b.id) - reach(a.id) || (a.id < b.id ? -1 : 1));
+  const entry = by('entry'), reg = by('registered'), api = by('api');
+  el.innerHTML = `<h2>选择聚焦的起点</h2><div class="sub">聚焦模式只画一个节点的上下游。按下游规模从大到小排列；也可以直接搜索。</div>
+    ${ENTRIES.length ? `<h3>指定的入口 (${ENTRIES.length})</h3>${fnItems(ENTRIES.map(id => fnById.get(id)))}` : ''}
+    <h3>入口 (${entry.length})</h3>${fnItems(entry)}
+    <h3>被注册的回调 (${reg.length})</h3>${fnItems(reg.slice(0, 30))}
+    <h3>导出 API（前 30 / ${api.length}）</h3>${fnItems(api.slice(0, 30))}
+    <h3>包 (${visPkgs().length})</h3>${visPkgs().map(p => `<div class="item" data-focus-pkg="${esc(p.id)}">${esc(p.id)}<small>${funcsOfPkg.get(p.id).length} functions</small></div>`).join('')}`;
+}
+function searchPanel(el) {
+  const qs = S.q.trim().toLowerCase(), foc = S.mode === 'focus';
+  const fs = G.functions.filter(f => !fnHidden(f) && f.id.toLowerCase().includes(qs));
+  const ps = visPkgs().filter(p => p.id.toLowerCase().includes(qs));
+  el.innerHTML = `<h2>搜索 “${esc(S.q.trim())}”</h2><div class="sub">${fs.length} 个函数 · ${ps.length} 个包${foc ? '，点击以它为中心聚焦' : ''}</div>` +
+    (ps.length ? '<h3>包</h3>' + ps.slice(0, 20).map(p => `<div class="item" ${foc ? 'data-focus-pkg' : 'data-goto-node'}="${foc ? esc(p.id) : 'pkg:' + esc(p.id)}">${esc(p.id)}</div>`).join('') : '') +
+    '<h3>函数</h3>' + fs.slice(0, 50).map(f => `<div class="item" ${foc ? 'data-focus-fn' : 'data-goto'}="${esc(f.id)}">${esc(f.label)} <span style="color:var(--muted)">· ${esc(f.package)}</span><small>${esc(f.pos)}</small></div>`).join('') +
+    (fs.length > 50 ? `<div class="hint">… 还有 ${fs.length - 50} 个，请缩小关键词</div>` : '');
+}
+const kindChip = e => {
+  const c = {direct:'', dynamic:'amber', registers:'orange', boundary:'violet', callback:'cyan'}[e.kind];
+  const nm = e.kind === 'callback' ? '闭包回调' : e.kind;
+  return `<span class="chip ${c}">${nm}</span>` + (e.mode !== 'call' ? `<span class="chip cyan">${e.mode}</span>` : '') + (e.candidates ? `<span class="chip amber">${e.candidates} 个候选</span>` : '')
+    + (e.flags || []).map(f => `<span class="chip rose">${FLAGNAME[f] || f}</span>`).join('')
+    + (e.ifaces && e.ifaces.length ? `<span class="chip">${esc(e.ifaces.join(', '))}</span>` : '');
+};
+const edgeNote = e => e.kind === 'callback' ? '调用的是定义在该函数内部的闭包（闭包已并入外层函数）' : '';
+const nameOf = id => fnById.has(id) ? (fnById.get(id).label + '  ·  ' + fnById.get(id).package) : (bById.has(id) ? bById.get(id).path : id);
+function edgeList(es, dirKey) {
+  return es.map(e => `<div class="item" data-goto="${esc(e[dirKey])}">${esc(nameOf(e[dirKey]))}<small>${kindChip(e)} ${e.sites.map(esc).join(' · ')}${edgeNote(e) ? '<br>' + edgeNote(e) : ''}</small></div>`).join('');
+}
+function panel() {
+  const el = $('#panel');
+  const s = S.sel;
+  if (!s && S.q.trim().length >= 2) return searchPanel(el);
+  if (!s && S.mode === 'focus' && !S.focus) return pickerPanel(el);
+  if (!s) {
+    el.innerHTML = `<h2>${esc(G.meta.module)}</h2><div class="sub">算法 ${esc(G.meta.algo)} · ${esc(G.meta.go_version)}</div>
+      <div class="hint">点击节点：高亮上下游，并显示详情。<br>点击节点右上角 <b>+</b> 或分组标题：展开 / 折叠包。<br>点击连线：查看调用点代码位置。<br>双击节点：以它为中心聚焦（只看上下游）。<br>拖动画布平移，滚轮缩放。</div>
+      <h3>图例</h3><div class="legend">
+        <span><i class="sw" style="color:var(--backend)"></i>自有包 / 函数</span>
+        <span><i class="sw" style="color:var(--frontend)"></i>入口 / 被注册</span>
+        <span><i class="sw" style="color:var(--database)"></i>数据库</span>
+        <span><i class="sw" style="color:var(--cloud)"></i>HTTP / RPC</span>
+        <span><i class="sw" style="color:var(--external)"></i>其它外部</span>
+        <span><i class="ln"></i>直接调用</span>
+        <span><i class="ln" style="border-top-style:dashed"></i>接口 / 函数值（?=候选数）</span>
+        <span><i class="ln" style="border-top-style:dashed;border-color:var(--messagebus)"></i>注册（函数值传给外部）</span>
+        <span><i class="ln" style="border-top-style:dotted;border-color:var(--edge-cb)"></i>闭包回调（调用的是 F 里定义的闭包）</span></div>
+      <h3>默认隐藏的内容</h3><div class="hint">${(G.policy || []).map(p => `<b>${esc(p.title)}</b>：${esc(p.description)}`).join('<br>')}<br>在右上角「过滤」里可以显示它们，也可以添加忽略规则。</div>
+      <h3>函数 role</h3><div class="hint">入口 · 包初始化 · 被注册 · 隐式 · 仅被生成代码调用 · 接口方法 · 导出 API · 被当作值引用 · <span style="color:var(--security)">无调用方（疑似未使用）</span>。「疑似未使用」仍不是死代码的证明：按名字的反射、cgo 导出等没有建模。</div>`;
+    return;
+  }
+  if (s.type === 'edge') {
+    const e = scene.edges.find(e => e.key === s.id);
+    if (!e) { S.sel = null; return panel(); }
+    el.innerHTML = `<h2>${e.items.length} 条调用</h2><div class="sub">${esc(e.from.replace(/^[a-z]+:/, ''))} → ${esc(e.to.replace(/^[a-z]+:/, ''))}</div>` +
+      e.items.map(i => `<div class="item"><span data-goto="${esc(i.from)}">${esc(nameOf(i.from))}</span> → <span data-goto="${esc(i.to)}">${esc(nameOf(i.to))}</span><small>${kindChip(i)} ${i.sites.map(esc).join(' · ')}</small></div>`).join('');
+    return;
+  }
+  const n = scene.nodes.find(n => n.id === s.id) || (s.id.startsWith('pkg:') ? {kind:'pkg', ref: pkgById.get(s.id.slice(4))} : null);
+  if (!n || !n.ref) { S.sel = null; return panel(); }
+  if (n.kind === 'fn') {
+    const f = n.ref;
+    el.innerHTML = `<h2>${esc(f.label)}</h2><div class="sub">${esc(f.id)}</div><button class="fbtn" data-focus-fn="${esc(f.id)}">⌖ 以此为中心聚焦</button><button class="fbtn ghost" data-ignore="${esc(JSON.stringify({function: f.id}))}" title="忽略规则：只隐藏这个函数">忽略此函数</button><button class="fbtn ghost" data-ignore="${esc(JSON.stringify({package: f.package}))}" title="忽略规则：隐藏整个包">忽略包 ${esc(f.package)}</button>${f.fan_in ? `<span class="chip">被 ${f.fan_in} 个函数调用</span>` : ''}
+      <div>${f.role ? `<span class="chip ${f.role === 'unused' ? 'rose' : 'cyan'}">${ROLENAME[f.role] || f.role}</span>` : ''}${f.exported ? '<span class="chip green">exported</span>' : ''}</div>
+      <h3>位置</h3><div>${esc(f.pos || '包级变量初始化表达式 + 所有 init() 函数（合并为一个节点）')}</div>
+      ${f.implicit_callers ? `<h3>隐式调用方</h3><div>${f.implicit_callers} 个函数可能把它交给外部代码经接口 / 反射调用。</div><div class="hint" style="margin-top:4px">图里最多画 ${3} 条，且已有调用方的函数不画；这里是真实数量。</div>` : ''}
+      ${f.implements && f.implements.length ? `<h3>实现的接口</h3>${f.implements.map(i => `<div>${esc(i)}</div>`).join('')}${f.role === 'iface' ? '<div class="hint" style="margin-top:6px">没有调用方，但它实现了接口：可能被图里看不到的接口调用方调用，也可能只是为了满足接口（如标记方法）。不是死代码。</div>' : ''}` : ''}
+      <h3>被调用 (${(inE.get(f.id) || []).length})</h3>${edgeList(inE.get(f.id) || [], 'from') || '<div class="hint">无（入口、导出 API 或疑似死代码）</div>'}
+      <h3>调用 (${(outE.get(f.id) || []).length})</h3>${edgeList(outE.get(f.id) || [], 'to') || '<div class="hint">无</div>'}`;
+  } else if (n.kind === 'b') {
+    const b = n.ref;
+    el.innerHTML = `<h2>${esc(b.path)}</h2><div class="sub">外部依赖 · ${b.kind === 'std' ? '标准库' : '第三方'}</div><span class="chip violet">${CATNAME[b.category]}</span><span class="chip">被 ${b.fan_in} 个函数调用</span><br><button class="fbtn" data-focus-b="${esc(b.id)}">⌖ 以此为中心聚焦</button><button class="fbtn ghost" data-ignore="${esc(JSON.stringify(b.kind === 'third' ? {module: b.module} : {package: b.path}))}" title="忽略规则：隐藏这个依赖">忽略 ${esc(b.kind === 'third' ? '模块 ' + b.module : b.path)}</button>
+      <h3>被调用 (${(inE.get(b.id) || []).length})</h3>${edgeList(inE.get(b.id) || [], 'from')}`;
+  } else {
+    const p = n.ref, fs = funcsOfPkg.get(p.id);
+    const ids = new Set(fs.map(f => f.id));
+    const outP = new Map(), inP = new Map();
+    for (const e of G.edges) {
+      if (!edgeOK(e)) continue;
+      const a = ids.has(e.from), b = ids.has(e.to);
+      if (a && !b) { const u = unitOf(e.to); if (u) outP.set(u, (outP.get(u) || 0) + 1); }
+      if (b && !a) { const u = unitOf(e.from); if (u) inP.set(u, (inP.get(u) || 0) + 1); }
+    }
+    const lst = m => [...m].sort((a, b) => b[1] - a[1]).map(([u, c]) => `<div class="item" data-goto-node="${esc(u)}">${esc(u.replace(/^[a-z]+:(ext:)?/, ''))}<small>${c} 条调用</small></div>`).join('') || '<div class="hint">无</div>';
+    el.innerHTML = `<h2>${esc(p.id)}</h2><div class="sub">${esc(p.path)}</div><span class="chip green">${fs.length} functions</span><br><button class="fbtn" data-focus-pkg="${esc(p.id)}">⌖ 以此包为中心聚焦</button><button class="fbtn ghost" data-ignore="${esc(JSON.stringify({package: p.id}))}" title="忽略规则：隐藏整个包">忽略此包</button>
+      <h3>调用到</h3>${lst(outP)}<h3>被调用自</h3>${lst(inP)}
+      <h3>函数</h3>${fs.map(f => `<div class="item" data-goto="${esc(f.id)}">${esc(f.label)}<small>${esc(f.pos || '包初始化')}${f.role ? ' · ' + (ROLENAME[f.role] || f.role) : ''}</small></div>`).join('')}`;
+  }
+}
+
+/* ───────────── view (pan / zoom) ───────────── */
+function applyView() { $('#vp').setAttribute('transform', `translate(${view.x},${view.y}) scale(${view.k})`); }
+function fit() {
+  const r = $('#stage').getBoundingClientRect();
+  if (!scene || !scene.nodes.length) return;
+  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+  for (const v of scene.rect.values()) { x0 = Math.min(x0, v.x); y0 = Math.min(y0, v.y); x1 = Math.max(x1, v.x + v.w); y1 = Math.max(y1, v.y + v.h); }
+  const k = Math.min(1, (r.width - 80) / (x1 - x0), (r.height - 80) / (y1 - y0));
+  view = {k, x: (r.width - (x1 - x0) * k) / 2 - x0 * k, y: (r.height - (y1 - y0) * k) / 2 - y0 * k};
+  // focus mode: if the whole neighbourhood only fits unreadably small, stay legible and centre on the seed
+  const seed = S.mode === 'focus' && S.focus && scene.rect.get(seedNodeId() || 'pkg:' + S.focus.id);
+  if (seed && k < 0.55) { view.k = 0.55; view.x = r.width / 2 - (seed.x + seed.w / 2) * 0.55; view.y = r.height / 2 - (seed.y + seed.h / 2) * 0.55; }
+  applyView();
+}
+function select(sel, reveal) {
+  S.sel = sel;
+  render(true);
+}
+function revealFn(id) {
+  const f = fnById.get(id);
+  if (f) { S.expanded.add(f.package); return 'f:' + id; }
+  return bById.has(id) ? 'b:' + id : null;
+}
+(() => {
+  const stage = $('#stage');
+  let drag = null, moved = 0;
+  stage.addEventListener('pointerdown', e => { drag = {x: e.clientX, y: e.clientY, vx: view.x, vy: view.y}; moved = 0; });
+  window.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    moved = Math.max(moved, Math.abs(dx) + Math.abs(dy));
+    if (moved > 4) { stage.classList.add('panning'); view.x = drag.vx + dx; view.y = drag.vy + dy; applyView(); }
+  });
+  window.addEventListener('pointerup', () => { drag = null; stage.classList.remove('panning'); });
+  stage.addEventListener('wheel', e => {
+    e.preventDefault();
+    const r = stage.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+    const k2 = Math.min(3, Math.max(.05, view.k * Math.exp(-e.deltaY * .0015)));
+    view.x = mx - (mx - view.x) * (k2 / view.k); view.y = my - (my - view.y) * (k2 / view.k); view.k = k2;
+    applyView();
+  }, {passive: false});
+  stage.addEventListener('click', e => {
+    if (moved > 4) return;
+    const tog = e.target.closest('[data-toggle]');
+    if (tog) {
+      if (S.mode === 'focus') return;
+      const id = tog.dataset.toggle;
+      S.expanded.has(id) ? S.expanded.delete(id) : S.expanded.add(id);
+      return render(true);
+    }
+    const nd = e.target.closest('[data-node]');
+    if (nd) return select({type: 'node', id: nd.dataset.node});
+    const ed = e.target.closest('[data-edge]');
+    if (ed) return select({type: 'edge', id: ed.dataset.edge});
+    select(null);
+  });
+  stage.addEventListener('dblclick', e => {
+    const nd = e.target.closest('[data-node]');
+    if (!nd) return;
+    const id = nd.dataset.node;
+    if (id.startsWith('f:')) setFocus({type: 'fn', id: id.slice(2)});
+    else if (id.startsWith('pkg:')) setFocus({type: 'pkg', id: id.slice(4)});
+    else if (id.startsWith('b:')) setFocus({type: 'b', id: id.slice(2)});
+  });
+  $('#panel').addEventListener('click', async e => {
+    const t = e.target.closest('[data-focus-fn],[data-focus-pkg],[data-focus-b],[data-goto],[data-goto-node],[data-ignore]');
+    if (!t) return;
+    const d = t.dataset;
+    if (d.ignore) return addRule(JSON.parse(d.ignore));
+    if (d.focusFn) return setFocus({type: 'fn', id: d.focusFn});
+    if (d.focusPkg) return setFocus({type: 'pkg', id: d.focusPkg});
+    if (d.focusB) return setFocus({type: 'b', id: d.focusB});
+    if (d.goto) {
+      const id = d.goto;
+      if (S.mode === 'focus') {
+        const nid = fnById.has(id) ? 'f:' + id : 'b:' + id;
+        if (scene.rect.has(nid)) { S.sel = {type: 'node', id: nid}; await render(true); focusOn(nid); }
+        else setFocus({type: fnById.has(id) ? 'fn' : 'b', id});
+        return;
+      }
+      const nid = revealFn(id);
+      if (nid) { await render(true); S.sel = {type: 'node', id: nid}; await render(true); focusOn(nid); }
+      return;
+    }
+    if (d.gotoNode) {
+      const u = d.gotoNode;
+      if (S.mode === 'focus') return setFocus(u.startsWith('pkg:') ? {type: 'pkg', id: u.slice(4)} : {type: 'b', id: u.slice(2)});
+      S.sel = {type: 'node', id: u}; await render(true); focusOn(u);
+    }
+  });
+})();
+async function setFocus(seed, push = true) {
+  if (push && S.focus) S.hist.push(S.focus);
+  S.focus = seed; S.mode = 'focus'; S.q = ''; $('#q').value = '';
+  S.sel = seed.type === 'pkg' ? null : {type: 'node', id: (seed.type === 'fn' ? 'f:' : 'b:') + seed.id};
+  return render();
+}
+function focusOn(id) {
+  const r = scene.rect.get(id); if (!r) return;
+  const sr = $('#stage').getBoundingClientRect();
+  view.x = sr.width / 2 - (r.x + r.w / 2) * view.k; view.y = sr.height / 2 - (r.y + r.h / 2) * view.k;
+  applyView();
+}
+
+/* ───────────── toolbar ───────────── */
+$('#expandAll').onclick = () => { G.packages.forEach(p => S.expanded.add(p.id)); render(); };
+$('#collapseAll').onclick = () => { S.expanded.clear(); render(); };
+$('#fit').onclick = fit;
+$('#mOver').onclick = () => { S.mode = 'overview'; render(); };
+$('#mFocus').onclick = () => { S.mode = 'focus'; render(); };
+$('#selDown').onchange = e => { S.down = +e.target.value; render(); };
+$('#selUp').onchange = e => { S.up = +e.target.value; render(); };
+$('#back').onclick = () => { if (S.hist.length) setFocus(S.hist.pop(), false); };
+$('#q').oninput = e => { S.q = e.target.value; if (S.q.trim().length >= 2) S.sel = null; render(true); };
+$('#q').onkeydown = e => {
+  if (e.key !== 'Enter' || S.mode === 'focus') return;
+  const qs = S.q.trim().toLowerCase();
+  if (qs.length < 2) return;
+  G.functions.forEach(f => { if (f.id.toLowerCase().includes(qs)) S.expanded.add(f.package); });
+  render();
+};
+window.addEventListener('resize', () => fit());
+
+/* ───────────── filter panel: what is hidden, and ignore rules ───────────── */
+const fpanel = $('#filterPanel');
+function ruleText(r) { return [r.module && '模块 ' + r.module, r.package && '包 ' + r.package, r.function && '函数 ' + r.function, r.tag && '标签 ' + r.tag].filter(Boolean).join(' 且 '); }
+function renderFilter() {
+  const cnt = {};   // reason -> [edges, nodes]
+  const bump = (reason, i) => { (cnt[reason] = cnt[reason] || [0, 0])[i]++; };
+  G.edges.forEach(e => e.hidden && bump(e.hidden_by, 0));
+  G.boundaries.forEach(b => b.hidden && bump(b.hidden_by, 1));
+  G.functions.forEach(f => f.hidden && bump(f.hidden_by, 1));
+  const reasons = (G.policy || []).filter(p => cnt[p.id]).map(p => `<label class="chk"><input type="checkbox" data-reason="${esc(p.id)}" ${S.show.has(p.id) ? 'checked' : ''}>显示「${esc(p.title)}」<span class="cnt">${cnt[p.id][0]} 条边${cnt[p.id][1] ? ' · ' + cnt[p.id][1] + ' 个节点' : ''}</span></label><div class="hint small">${esc(p.description)}</div>`).join('') || '<div class="hint">没有被默认隐藏的内容</div>';
+  const rules = allRules().map(r => `<div class="rule"><label class="chk"><input type="checkbox" data-rule-on="${esc(r.id)}" ${S.ruleOff.has(r.id) ? '' : 'checked'}>忽略 ${esc(ruleText(r))}</label>${r.src === 'file' ? '<span class="cnt">规则文件</span>' : `<button class="x" data-rule-del="${esc(r.id)}" title="删除这条规则">✕</button>`}</div>`).join('') || '<div class="hint">还没有忽略规则</div>';
+  const entryBox = ENTRIES.length ? `<label class="chk"><input type="checkbox" id="onlyReach" ${S.onlyReach ? 'checked' : ''}>只显示入口可达的部分</label><div class="hint small">入口：${ENTRIES.slice(0, 4).map(esc).join('、')}${ENTRIES.length > 4 ? ' 等 ' + ENTRIES.length + ' 个' : ''}。可达 = 沿非猜测的边能走到；包初始化在 main 之前运行，也算起点。</div>` : '';
+  fpanel.innerHTML = `<h3>显示</h3>${entryBox}<label class="chk"><input type="checkbox" id="showB" ${S.showB ? 'checked' : ''}>外部依赖（标准库、第三方）</label>
+    <h3>默认隐藏的内容</h3>${reasons}
+    <h3>按调用次数隐藏（“常见”的东西）</h3>
+    <div class="thr"><label>外部依赖：被超过 <input type="number" id="maxFanB" min="0" value="${S.maxFanB}"> 个函数调用时隐藏</label></div>
+    <div class="hint small">${S.maxFanB ? `现在会隐藏 ${G.boundaries.filter(b => b.fan_in > S.maxFanB).length} 个外部依赖` : '未启用'}</div>
+    <div class="thr"><label>自有函数：被超过 <input type="number" id="maxFanF" min="0" value="${S.maxFanF}"> 个函数调用时隐藏</label></div>
+    <div class="hint small">${S.maxFanF ? `现在会隐藏 ${G.functions.filter(f => f.fan_in > S.maxFanF).length} 个自有函数` : '未启用'}</div>
+    <div class="hint small">0 = 不启用。调用次数 = 有多少个不同的函数调用或引用它（猜测的边不算）。下面是现在还显示的、被调用最多的，点 ✕ 直接忽略。</div>
+    <div class="top">${topList()}</div>
+    <h3>忽略规则</h3>${rules}
+    <div class="addrule"><select id="ruleKind"><option value="module">模块</option><option value="package">包 / 导入路径</option><option value="function">函数（末尾 * 表示前缀）</option><option value="tag">标签</option></select><input id="ruleVal" placeholder="如 golang.org/x/sys、internal/gen/*"><button id="ruleAdd">添加</button></div>
+    <div class="row"><button data-preset='{"tag":"internal"}'>忽略所有 internal 包</button><button data-preset='{"module":"std"}'>忽略标准库</button></div>
+    <div class="row"><button id="ruleExport">导出规则</button><button id="ruleImport">导入规则</button><input type="file" id="ruleFile" accept="application/json,.json" hidden></div>
+    <div class="hint small" style="margin:10px 0 0">匹配按路径元素边界：<code>golang.org/x/tools</code> 匹配它的子包，不匹配 <code>golang.org/x/toolsfoo</code>；末尾 <code>*</code> 表示纯前缀；标签如 <code>internal</code>、<code>role:unused</code>。规则只在浏览器里生效，导出后可用 <code>calltrail run -rules</code> / <code>calltrail annotate -rules</code> 带入。</div>`;
+}
+function topList() {
+  const bs = G.boundaries.filter(b => !hiddenB.has(b.id)).sort((a, b) => b.fan_in - a.fan_in || (a.path < b.path ? -1 : 1)).slice(0, 8);
+  const fs = G.functions.filter(f => !fnHidden(f) && f.fan_in > 1).sort((a, b) => b.fan_in - a.fan_in || (a.id < b.id ? -1 : 1)).slice(0, 8);
+  const row = (name, n, rule) => `<div class="rule"><span style="flex:1;min-width:0;word-break:break-all">${esc(name)}</span><span class="cnt" style="margin:0 6px">${n}</span><button class="x" data-ignore="${esc(JSON.stringify(rule))}" title="忽略">✕</button></div>`;
+  return `<div class="hint small" style="margin:0 0 4px">最常被调用的外部依赖</div>${bs.map(b => row(b.path, b.fan_in, b.kind === 'third' ? {module: b.module} : {package: b.path})).join('') || '<div class="hint small">无</div>'}
+    <div class="hint small" style="margin:8px 0 4px">最常被调用的自有函数</div>${fs.map(f => row(f.label + '  ·  ' + f.package, f.fan_in, {function: f.id})).join('') || '<div class="hint small">无</div>'}`;
+}
+function syncQuick() { $('#hideCommon').checked = !S.show.has('low-signal'); }
+function rulesChanged() {
+  persist(); recomputeHidden(); syncQuick();
+  if (S.sel && S.sel.type === 'node' && nodeHidden(S.sel.id.replace(/^(f|b):/, ''))) S.sel = null;
+  if (S.focus && S.focus.type === 'fn' && fnById.has(S.focus.id) && fnHidden(fnById.get(S.focus.id))) S.focus = null;
+  renderFilter(); render(true);
+}
+function addRule(r) {
+  const rule = {id: 'u' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), ...r};
+  const key = x => JSON.stringify([x.module || '', x.package || '', x.function || '', x.tag || '']);
+  if (allRules().some(x => key(x) === key(rule))) { S.ruleOff.delete(allRules().find(x => key(x) === key(rule)).id); return rulesChanged(); }
+  S.userRules.push(rule); rulesChanged();
+}
+fpanel.addEventListener('change', e => {
+  const t = e.target;
+  if (t.id === 'showB') { S.showB = t.checked; persist(); return render(true); }
+  if (t.id === 'onlyReach') { S.onlyReach = t.checked; return rulesChanged(); }
+  if (t.id === 'maxFanB' || t.id === 'maxFanF') { const v = Math.max(0, parseInt(t.value, 10) || 0); t.id === 'maxFanB' ? S.maxFanB = v : S.maxFanF = v; return rulesChanged(); }
+  if (t.dataset.reason) { t.checked ? S.show.add(t.dataset.reason) : S.show.delete(t.dataset.reason); return rulesChanged(); }
+  if (t.dataset.ruleOn) { t.checked ? S.ruleOff.delete(t.dataset.ruleOn) : S.ruleOff.add(t.dataset.ruleOn); return rulesChanged(); }
+  if (t.id === 'ruleFile' && t.files[0]) {
+    t.files[0].text().then(txt => {
+      let rs; try { const j = JSON.parse(txt); rs = Array.isArray(j) ? j : j.rules; } catch (err) { return alert('不是有效的规则文件：' + err.message); }
+      if (!Array.isArray(rs)) return alert('规则文件应为 {"rules": [...]} 或数组');
+      let n = 0;
+      for (const r of rs) { if (r && (r.module || r.package || r.function || r.tag)) { S.userRules.push({id: 'u' + Date.now().toString(36) + (n++), module: r.module, package: r.package, function: r.function, tag: r.tag, note: r.note}); } }
+      rulesChanged();
+    });
+  }
+});
+fpanel.addEventListener('click', e => {
+  const t = e.target.closest('button'); if (!t) return;
+  if (t.dataset.ignore) return addRule(JSON.parse(t.dataset.ignore));
+  if (t.dataset.ruleDel) { S.userRules = S.userRules.filter(r => r.id !== t.dataset.ruleDel); S.ruleOff.delete(t.dataset.ruleDel); return rulesChanged(); }
+  if (t.dataset.preset) return addRule(JSON.parse(t.dataset.preset));
+  if (t.id === 'ruleAdd') {
+    const v = $('#ruleVal').value.trim(); if (!v) return;
+    return addRule({[$('#ruleKind').value]: v});
+  }
+  if (t.id === 'ruleExport') {
+    const rules = activeRules().map(r => { const o = {}; for (const k of ['module', 'package', 'function', 'tag', 'note']) if (r[k]) o[k] = r[k]; return o; });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([JSON.stringify({rules}, null, 2) + '\n'], {type: 'application/json'}));
+    a.download = 'calltrail.rules.json'; a.click(); URL.revokeObjectURL(a.href);
+  }
+  if (t.id === 'ruleImport') $('#ruleFile').click();
+});
+fpanel.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'ruleVal') $('#ruleAdd').click(); });
+$('#hideCommon').onchange = e => { e.target.checked ? S.show.delete('low-signal') : S.show.add('low-signal'); rulesChanged(); };
+$('#filter').onclick = () => { fpanel.hidden = !fpanel.hidden; if (!fpanel.hidden) renderFilter(); };
+document.addEventListener('click', e => { if (!fpanel.hidden && !fpanel.contains(e.target) && e.target.id !== 'filter') fpanel.hidden = true; });
+
+/* ───────────── theme ───────────── */
+function setTheme(t, save) {
+  document.documentElement.dataset.theme = t;
+  if (save) { try { localStorage.setItem('calltrail.theme', t); } catch (e) {} }
+  $('#theme').textContent = t === 'light' ? '☾ 深色' : '☀ 浅色';
+  if (scene) render(true);    // node colours are resolved from the CSS variables at draw time
+}
+$('#theme').onclick = () => setTheme(document.documentElement.dataset.theme === 'light' ? 'dark' : 'light', true);
+matchMedia('(prefers-color-scheme: light)').addEventListener('change', e => {
+  let saved = null; try { saved = localStorage.getItem('calltrail.theme'); } catch (err) {}
+  if (!saved) setTheme(e.matches ? 'light' : 'dark', false);   // follow the system until the user chooses
+});
+
+/* ───────────── boot ───────────── */
+$('#title').textContent = G.meta.module;
+recomputeHidden();
+syncQuick();
+if (ENTRIES.length) { S.focus = {type: 'fn', id: ENTRIES[0]}; S.sel = {type: 'node', id: 'f:' + ENTRIES[0]}; S.down = 99; S.up = 0; }
+{ const common = G.boundaries.filter(b => b.hidden_by === 'low-signal').map(b => b.path);
+  $('#commonLbl').title = common.length ? `默认隐藏 ${common.length} 个常见依赖：${common.slice(0, 14).join('、')}${common.length > 14 ? '…' : ''}（内置清单）。想按调用次数隐藏更多，见「过滤」。` : '没有常见依赖需要隐藏'; }
+setTheme(document.documentElement.dataset.theme, false);
+$('#stats').textContent = `${G.packages.length} 个包 · ${G.functions.length} 个自有函数（全部 ${G.meta.total_functions}）· ${G.edges.length} 条边 · ${G.boundaries.length} 个外部依赖`;
+render();
+</script>
+</body>
+</html>
