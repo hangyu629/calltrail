@@ -424,3 +424,16 @@ func TestReachability(t *testing.T) {
 		t.Error("OnlyReachable without entries must be a no-op")
 	}
 }
+
+// Every hiding reason must be explained in both languages: the page picks title / title_en
+// (and description / description_en) by the interface language and has no other source for them.
+func TestPolicyHasBothLanguages(t *testing.T) {
+	if len(Policy) == 0 {
+		t.Fatal("no policy")
+	}
+	for _, p := range Policy {
+		if p.ID == "" || p.Title == "" || p.Description == "" || p.TitleEN == "" || p.DescriptionEN == "" {
+			t.Errorf("policy %q is missing text in one language: %+v", p.ID, p)
+		}
+	}
+}

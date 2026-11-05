@@ -122,17 +122,18 @@ body.busy #stage{opacity:.55;transition:opacity .15s}
     <h1 id="title">calltrail</h1>
     <span class="stats" id="stats"></span>
     <span class="spacer"></span>
-    <span class="seg"><button id="mOver">总览</button><button id="mFocus">聚焦</button></span>
-    <button id="back" class="fctl" style="display:none">← 返回</button>
-    <label class="chk fctl">下游<select id="selDown"><option value="1">1</option><option value="2" selected>2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="99">全部</option></select></label>
-    <label class="chk fctl">上游<select id="selUp"><option>0</option><option selected>1</option><option>2</option><option>3</option></select></label>
-    <label class="chk" id="commonLbl"><input type="checkbox" id="hideCommon" checked>隐藏常见依赖</label>
-    <button id="filter" title="外部依赖、默认隐藏的内容、按调用次数隐藏、忽略规则">过滤 ▾</button>
-    <button id="expandAll" class="octl">全部展开</button>
-    <button id="collapseAll" class="octl">全部折叠</button>
-    <button id="fit">适应窗口</button>
-    <button id="theme" title="深色 / 浅色（默认跟随系统）">☀ 浅色</button>
-    <input type="search" id="q" placeholder="搜索函数，回车展开匹配">
+    <span class="seg"><button id="mOver" data-i18n="overview"></button><button id="mFocus" data-i18n="focus"></button></span>
+    <button id="back" class="fctl" style="display:none" data-i18n="back"></button>
+    <label class="chk fctl"><span data-i18n="down"></span><select id="selDown"><option value="1">1</option><option value="2" selected>2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="99" data-i18n="all"></option></select></label>
+    <label class="chk fctl"><span data-i18n="up"></span><select id="selUp"><option>0</option><option selected>1</option><option>2</option><option>3</option></select></label>
+    <label class="chk" id="commonLbl"><input type="checkbox" id="hideCommon" checked><span data-i18n="hideCommon"></span></label>
+    <button id="filter" data-i18n-title="filterTip" data-i18n="filter"></button>
+    <button id="expandAll" class="octl" data-i18n="expandAll"></button>
+    <button id="collapseAll" class="octl" data-i18n="collapseAll"></button>
+    <button id="fit" data-i18n="fit"></button>
+    <button id="theme" data-i18n-title="themeTip"></button>
+    <button id="lang" data-i18n-title="langTip"></button>
+    <input type="search" id="q" data-i18n-ph="searchPh">
   </header>
   <main>
     <div id="stage"><svg id="svg"><defs>
@@ -142,7 +143,7 @@ body.busy #stage{opacity:.55;transition:opacity .15s}
       <marker id="mw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="mk-w"/></marker>
     </defs><g id="vp"></g></svg>
       <div id="info"></div>
-      <div id="empty"><div><b style="color:var(--ink);font-size:14px">聚焦模式</b><br>项目较大，不画全图。<br>从右侧选一个入口 / 包，或用搜索框找函数。<br>之后双击任意节点，可把它设为新的中心。</div></div></div>
+      <div id="empty"><div id="emptyInner"></div></div></div>
     <aside id="panel"></aside>
   </main>
 </div>
@@ -155,6 +156,179 @@ const G = /*__GRAPH_JSON__*/null;
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const base = p => p.split('/').pop();
+
+/* ───────────── i18n: zh / en ─────────────
+   Chosen language: the saved choice, else the browser language (zh* → Chinese, anything else → English).
+   Missing English strings fall back to Chinese; a missing key shows the key. The names of the
+   model's hiding reasons come from G.policy (title / title_en). */
+const I18N = {
+  zh: {
+    overview: '总览', focus: '聚焦', back: '← 返回', down: '下游', up: '上游', all: '全部',
+    hideCommon: '隐藏常见依赖', filter: '过滤 ▾', filterTip: '外部依赖、默认隐藏的内容、按调用次数隐藏、忽略规则',
+    expandAll: '全部展开', collapseAll: '全部折叠', fit: '适应窗口', themeTip: '深色 / 浅色（默认跟随系统）',
+    toLight: '☀ 浅色', toDark: '☾ 深色', langBtn: 'EN', langTip: '切换语言 / Language',
+    searchPh: '搜索函数，回车展开匹配', sep: '、', colon: '：',
+    empty: '<b style="color:var(--ink);font-size:14px">聚焦模式</b><br>项目较大，不画全图。<br>从右侧选一个入口 / 包，或用搜索框找函数。<br>之后双击任意节点，可把它设为新的中心。',
+    'cat.db': '数据库', 'cat.http': 'HTTP / RPC', 'cat.mq': '消息队列', 'cat.fs': '文件系统', 'cat.other': '其它',
+    'role.entry': '入口', 'role.init': '包初始化', 'role.registered': '被注册',
+    'role.implicit': '隐式（可能被图里看不到的调用方调用：外部代码经接口/反射，或仅类层次推测）',
+    'role.generated': '仅被生成的代码调用', 'role.iface': '接口方法（没人按名字调用）', 'role.api': '导出 API',
+    'role.referenced': '被当作值引用', 'role.unused': '无调用方（疑似未使用）',
+    'flag.external-iface': '外部接口', 'flag.table': '查表分发', 'flag.implicit-iface': '隐式接口',
+    'flag.cha-fallback': '仅类层次推测', 'flag.reflect': '反射', 'flag.linkname': 'linkname',
+    'kind.callback': '闭包回调', 'bkind.std': '标准库', 'bkind.third': '第三方',
+    layoutBusy: (n, e) => `布局中… <b>${n}</b> 个节点 · <b>${e}</b> 条边。节点很多时可能要十几秒，建议改用「聚焦」模式。`,
+    pkgInitPos: '包级变量初始化 + init()', pkgInit: '包初始化',
+    // status line
+    stEdges: (title, n) => `${title} <b>${n}</b> 条边`,
+    stUnreached: n => `入口到不了 <b>${n}</b> 个函数`,
+    stRules: n => `规则 / 阈值隐藏 <b>${n}</b> 个包、依赖或函数`,
+    stFocus: (x, down, up, n) => `聚焦 <b>${x}</b> · 下游 ${down >= 99 ? '全部' : down + ' 层'} · 上游 ${up} 层 · 显示 <b>${n}</b> 个函数`,
+    stMany: '（偏多，可减小层数）',
+    stHidden: parts => `已隐藏：${parts.join(' · ')}。在「过滤」里可以显示或调整`,
+    stats: (p, f, total, e, b) => `${p} 个包 · ${f} 个自有函数（全部 ${total}）· ${e} 条边 · ${b} 个外部依赖`,
+    commonTip: (n, list, more) => `默认隐藏 ${n} 个常见依赖：${list}${more ? '…' : ''}（内置清单）。想按调用次数隐藏更多，见「过滤」。`,
+    commonNone: '没有常见依赖需要隐藏',
+    // lists
+    none: '无', fnDown: (n, pos) => `下游 ${n} 个函数 · ${pos}`,
+    pickTitle: '选择聚焦的起点', pickSub: '聚焦模式只画一个节点的上下游。按下游规模从大到小排列；也可以直接搜索。',
+    pickEntries: n => `指定的入口 (${n})`, pickEntry: n => `入口 (${n})`, pickReg: n => `被注册的回调 (${n})`,
+    pickApi: n => `导出 API（前 30 / ${n}）`, pickPkgs: n => `包 (${n})`,
+    searchTitle: q => `搜索 “${q}”`, searchSub: (f, p, foc) => `${f} 个函数 · ${p} 个包${foc ? '，点击以它为中心聚焦' : ''}`,
+    packages: '包', functions: '函数', searchMore: n => `… 还有 ${n} 个，请缩小关键词`,
+    // chips
+    candidates: n => `${n} 个候选`,
+    cbNote: '调用的是定义在该函数内部的闭包（闭包已并入外层函数）',
+    // help panel
+    algo: (a, v) => `算法 ${a} · ${v}`,
+    helpLines: '点击节点：高亮上下游，并显示详情。<br>点击节点右上角 <b>+</b> 或分组标题：展开 / 折叠包。<br>点击连线：查看调用点代码位置。<br>双击节点：以它为中心聚焦（只看上下游）。<br>拖动画布平移，滚轮缩放。',
+    legend: '图例', 'leg.own': '自有包 / 函数', 'leg.entry': '入口 / 被注册', 'leg.db': '数据库', 'leg.http': 'HTTP / RPC', 'leg.other': '其它外部',
+    'leg.direct': '直接调用', 'leg.dynamic': '接口 / 函数值（?=候选数）', 'leg.registers': '注册（函数值传给外部）',
+    'leg.callback': '闭包回调（调用的是 F 里定义的闭包）',
+    hiddenByDefault: '默认隐藏的内容', hiddenFoot: '在右上角「过滤」里可以显示它们，也可以添加忽略规则。',
+    rolesTitle: '函数 role',
+    rolesText: '入口 · 包初始化 · 被注册 · 隐式 · 仅被生成代码调用 · 接口方法 · 导出 API · 被当作值引用 · <span style="color:var(--security)">无调用方（疑似未使用）</span>。「疑似未使用」仍不是死代码的证明：按名字的反射、cgo 导出等没有建模。',
+    // details
+    nCalls: n => `${n} 条调用`, focusThis: '⌖ 以此为中心聚焦', focusThisPkg: '⌖ 以此包为中心聚焦',
+    ignoreFn: '忽略此函数', ignoreFnTip: '忽略规则：只隐藏这个函数', ignorePkg: p => `忽略包 ${p}`, ignorePkgTip: '忽略规则：隐藏整个包',
+    ignoreThisPkg: '忽略此包', ignoreDepTip: '忽略规则：隐藏这个依赖', ignoreDep: x => `忽略 ${x}`, modulePrefix: '模块 ',
+    calledBy: n => `被 ${n} 个函数调用`, location: '位置',
+    pkgInitLong: '包级变量初始化表达式 + 所有 init() 函数（合并为一个节点）',
+    implicitCallers: '隐式调用方', implicitText: n => `${n} 个函数可能把它交给外部代码经接口 / 反射调用。`,
+    implicitHint: '图里最多画 3 条，且已有调用方的函数不画；这里是真实数量。',
+    implementsTitle: '实现的接口',
+    ifaceHint: '没有调用方，但它实现了接口：可能被图里看不到的接口调用方调用，也可能只是为了满足接口（如标记方法）。不是死代码。',
+    calledByH: n => `被调用 (${n})`, noCallers: '无（入口、导出 API 或疑似死代码）', callsH: n => `调用 (${n})`,
+    extDep: '外部依赖', callsInto: '调用到', calledFrom: '被调用自', nCallsShort: n => `${n} 条调用`, funcsH: '函数',
+    // filter panel
+    fShow: '显示', fOnlyReach: '只显示入口可达的部分',
+    fEntries: (list, n, more) => `入口：${list}${more ? ' 等 ' + n + ' 个' : ''}。可达 = 沿非猜测的边能走到；包初始化在 main 之前运行，也算起点。`,
+    fExt: '外部依赖（标准库、第三方）', fShowReason: title => `显示「${title}」`,
+    fCount: (e, n) => `${e} 条边${n ? ' · ' + n + ' 个节点' : ''}`, fNoHidden: '没有被默认隐藏的内容',
+    fFan: '按调用次数隐藏（“常见”的东西）',
+    fFanB: inp => `外部依赖：被超过 ${inp} 个函数调用时隐藏`, fFanF: inp => `自有函数：被超过 ${inp} 个函数调用时隐藏`,
+    fWouldB: n => `现在会隐藏 ${n} 个外部依赖`, fWouldF: n => `现在会隐藏 ${n} 个自有函数`, fOff: '未启用',
+    fFanHelp: '0 = 不启用。调用次数 = 有多少个不同的函数调用或引用它（猜测的边不算）。下面是现在还显示的、被调用最多的，点 ✕ 直接忽略。',
+    fRules: '忽略规则', fIgnore: x => `忽略 ${x}`, fRuleFile: '规则文件', fDelRule: '删除这条规则', fNoRules: '还没有忽略规则',
+    rModule: '模块 ', rPackage: '包 ', rFunction: '函数 ', rTag: '标签 ', rAnd: ' 且 ',
+    kModule: '模块', kPackage: '包 / 导入路径', kFunction: '函数（末尾 * 表示前缀）', kTag: '标签',
+    rulePh: '如 golang.org/x/sys、internal/gen/*', add: '添加',
+    presetInternal: '忽略所有 internal 包', presetStd: '忽略标准库', exportRules: '导出规则', importRules: '导入规则',
+    fMatchHelp: '匹配按路径元素边界：<code>golang.org/x/tools</code> 匹配它的子包，不匹配 <code>golang.org/x/toolsfoo</code>；末尾 <code>*</code> 表示纯前缀；标签如 <code>internal</code>、<code>role:unused</code>。规则只在浏览器里生效，导出后可用 <code>calltrail run -rules</code> / <code>calltrail annotate -rules</code> 带入。',
+    topB: '最常被调用的外部依赖', topF: '最常被调用的自有函数', ignoreTip: '忽略',
+    badRules: m => `不是有效的规则文件：${m}`, badShape: '规则文件应为 {"rules": [...]} 或数组',
+  },
+  en: {
+    overview: 'Overview', focus: 'Focus', back: '← Back', down: 'Downstream', up: 'Upstream', all: 'All',
+    hideCommon: 'Hide common dependencies', filter: 'Filter ▾', filterTip: 'External dependencies, what is hidden by default, hide by number of callers, ignore rules',
+    expandAll: 'Expand all', collapseAll: 'Collapse all', fit: 'Fit to window', themeTip: 'Dark / light (follows the system by default)',
+    toLight: '☀ Light', toDark: '☾ Dark', langBtn: '中文', langTip: 'Switch language / 切换语言',
+    searchPh: 'Search functions; Enter expands the matches', sep: ', ', colon: ': ',
+    empty: '<b style="color:var(--ink);font-size:14px">Focus mode</b><br>This project is large, so the whole graph is not drawn.<br>Pick an entry or a package on the right, or search for a function.<br>Then double-click any node to make it the new centre.',
+    'cat.db': 'Database', 'cat.http': 'HTTP / RPC', 'cat.mq': 'Message queue', 'cat.fs': 'File system', 'cat.other': 'Other',
+    'role.entry': 'Entry', 'role.init': 'Package initialisation', 'role.registered': 'Registered',
+    'role.implicit': 'Implicit (may be called by callers the graph cannot see: external code through an interface or reflection, or only a class-hierarchy guess)',
+    'role.generated': 'Called only by generated code', 'role.iface': 'Interface method (nobody calls it by name)', 'role.api': 'Exported API',
+    'role.referenced': 'Used as a value', 'role.unused': 'No callers (probably unused)',
+    'flag.external-iface': 'external interface', 'flag.table': 'table dispatch', 'flag.implicit-iface': 'implicit interface',
+    'flag.cha-fallback': 'class-hierarchy guess only', 'flag.reflect': 'reflection', 'flag.linkname': 'linkname',
+    'kind.callback': 'closure callback', 'bkind.std': 'standard library', 'bkind.third': 'third party',
+    layoutBusy: (n, e) => `Laying out… <b>${n}</b> nodes · <b>${e}</b> edges. This can take over ten seconds with many nodes; consider Focus mode.`,
+    pkgInitPos: 'package variable initialisers + init()', pkgInit: 'package initialisation',
+    stEdges: (title, n) => `${title} <b>${n}</b> edges`,
+    stUnreached: n => `<b>${n}</b> functions the entry cannot reach`,
+    stRules: n => `<b>${n}</b> packages, dependencies or functions hidden by rules / thresholds`,
+    stFocus: (x, down, up, n) => `Focus <b>${x}</b> · downstream ${down >= 99 ? 'all' : down + ' levels'} · upstream ${up} levels · showing <b>${n}</b> functions`,
+    stMany: '(a lot; consider fewer levels)',
+    stHidden: parts => `Hidden: ${parts.join(' · ')}. Show or adjust in “Filter”`,
+    stats: (p, f, total, e, b) => `${p} packages · ${f} own functions (${total} in all) · ${e} edges · ${b} external dependencies`,
+    commonTip: (n, list, more) => `${n} common dependencies are hidden by default: ${list}${more ? ', …' : ''} (built-in list). To hide more by number of callers, see “Filter”.`,
+    commonNone: 'There are no common dependencies to hide',
+    none: 'None', fnDown: (n, pos) => `${n} functions downstream · ${pos}`,
+    pickTitle: 'Pick a starting point', pickSub: 'Focus mode draws only the upstream and downstream of one node. Sorted by the size of the downstream, largest first; you can also just search.',
+    pickEntries: n => `Entries you gave (${n})`, pickEntry: n => `Entries (${n})`, pickReg: n => `Registered callbacks (${n})`,
+    pickApi: n => `Exported API (first 30 of ${n})`, pickPkgs: n => `Packages (${n})`,
+    searchTitle: q => `Search “${q}”`, searchSub: (f, p, foc) => `${f} functions · ${p} packages${foc ? ' — click to focus on it' : ''}`,
+    packages: 'Packages', functions: 'Functions', searchMore: n => `… ${n} more; narrow the query`,
+    candidates: n => `${n} candidates`,
+    cbNote: 'Calls a closure defined inside that function (closures are folded into the enclosing function)',
+    algo: (a, v) => `Algorithm ${a} · ${v}`,
+    helpLines: 'Click a node: highlight its upstream and downstream and show details.<br>Click <b>+</b> at a node\'s top right or a group title: expand / collapse the package.<br>Click an edge: see where the call sites are in the code.<br>Double-click a node: focus on it (upstream and downstream only).<br>Drag the canvas to pan, scroll to zoom.',
+    legend: 'Legend', 'leg.own': 'Own package / function', 'leg.entry': 'Entry / registered', 'leg.db': 'Database', 'leg.http': 'HTTP / RPC', 'leg.other': 'Other external',
+    'leg.direct': 'Direct call', 'leg.dynamic': 'Interface / function value (? = number of candidates)', 'leg.registers': 'Registers (a function value handed to external code)',
+    'leg.callback': 'Closure callback (calls a closure defined in F)',
+    hiddenByDefault: 'Hidden by default', hiddenFoot: 'Show them, or add ignore rules, in “Filter” at the top right.',
+    rolesTitle: 'Function roles',
+    rolesText: 'Entry · package initialisation · registered · implicit · called only by generated code · interface method · exported API · used as a value · <span style="color:var(--security)">no callers (probably unused)</span>. “Probably unused” is still not proof of dead code: reflection by name, cgo exports and the like are not modelled.',
+    nCalls: n => `${n} calls`, focusThis: '⌖ Focus on this', focusThisPkg: '⌖ Focus on this package',
+    ignoreFn: 'Ignore this function', ignoreFnTip: 'Ignore rule: hide only this function', ignorePkg: p => `Ignore package ${p}`, ignorePkgTip: 'Ignore rule: hide the whole package',
+    ignoreThisPkg: 'Ignore this package', ignoreDepTip: 'Ignore rule: hide this dependency', ignoreDep: x => `Ignore ${x}`, modulePrefix: 'module ',
+    calledBy: n => `Called by ${n} functions`, location: 'Location',
+    pkgInitLong: 'Package-level variable initialisers + every init() function (merged into one node)',
+    implicitCallers: 'Implicit callers', implicitText: n => `${n} functions may hand it to external code that calls it through an interface or reflection.`,
+    implicitHint: 'At most 3 are drawn, and none for a function that has callers; this is the real number.',
+    implementsTitle: 'Implements',
+    ifaceHint: 'No callers, but it implements an interface: it may be called through that interface by callers the graph cannot see, or it may exist only to satisfy the interface (a marker method). Not dead code.',
+    calledByH: n => `Called by (${n})`, noCallers: 'None (an entry, an exported API, or probably dead code)', callsH: n => `Calls (${n})`,
+    extDep: 'External dependency', callsInto: 'Calls into', calledFrom: 'Called from', nCallsShort: n => `${n} calls`, funcsH: 'Functions',
+    fShow: 'Show', fOnlyReach: 'Show only what the entry can reach',
+    fEntries: (list, n, more) => `Entries: ${list}${more ? ' … ' + n + ' in all' : ''}. Reachable = can be reached along edges that are not guesses; package initialisation runs before main, so it counts as a starting point too.`,
+    fExt: 'External dependencies (standard library, third party)', fShowReason: title => `Show “${title}”`,
+    fCount: (e, n) => `${e} edges${n ? ' · ' + n + ' nodes' : ''}`, fNoHidden: 'Nothing is hidden by default',
+    fFan: 'Hide by number of callers (the “common” things)',
+    fFanB: inp => `External dependencies: hide when called by more than ${inp} functions`, fFanF: inp => `Own functions: hide when called by more than ${inp} functions`,
+    fWouldB: n => `Would hide ${n} external dependencies now`, fWouldF: n => `Would hide ${n} own functions now`, fOff: 'Off',
+    fFanHelp: '0 = off. Number of callers = how many different functions call or reference it (guessed edges do not count). Below are the most-called things that are still shown; ✕ ignores one right away.',
+    fRules: 'Ignore rules', fIgnore: x => `Ignore ${x}`, fRuleFile: 'rules file', fDelRule: 'Delete this rule', fNoRules: 'No ignore rules yet',
+    rModule: 'module ', rPackage: 'package ', rFunction: 'function ', rTag: 'tag ', rAnd: ' and ',
+    kModule: 'Module', kPackage: 'Package / import path', kFunction: 'Function (a trailing * means prefix)', kTag: 'Tag',
+    rulePh: 'e.g. golang.org/x/sys, internal/gen/*', add: 'Add',
+    presetInternal: 'Ignore all internal packages', presetStd: 'Ignore the standard library', exportRules: 'Export rules', importRules: 'Import rules',
+    fMatchHelp: 'Matching is by path element boundaries: <code>golang.org/x/tools</code> matches its sub-packages but not <code>golang.org/x/toolsfoo</code>; a trailing <code>*</code> means a plain prefix; tags look like <code>internal</code> or <code>role:unused</code>. Rules take effect only in the browser; export them and pass them to <code>calltrail run -rules</code> / <code>calltrail annotate -rules</code>.',
+    topB: 'Most-called external dependencies', topF: 'Most-called own functions', ignoreTip: 'Ignore',
+    badRules: m => `Not a valid rules file: ${m}`, badShape: 'A rules file should be {"rules": [...]} or an array',
+  },
+};
+let LANG = /^zh/i.test(navigator.language || '') ? 'zh' : 'en';
+try { const sv = localStorage.getItem('calltrail.lang'); if (sv === 'zh' || sv === 'en') LANG = sv; } catch (e) {}
+const hasKey = k => I18N[LANG][k] !== undefined || I18N.zh[k] !== undefined;
+const tr = (k, ...a) => {
+  const v = I18N[LANG][k] !== undefined ? I18N[LANG][k] : I18N.zh[k];
+  return v === undefined ? k : (typeof v === 'function' ? v(...a) : v);
+};
+const catName = c => hasKey('cat.' + c) ? tr('cat.' + c) : c;
+const roleName = r => hasKey('role.' + r) ? tr('role.' + r) : r;
+const flagName = f => hasKey('flag.' + f) ? tr('flag.' + f) : f;
+const polTitle = p => (LANG === 'en' && p.title_en) || p.title;
+const polDesc = p => (LANG === 'en' && p.description_en) || p.description;
+function applyStaticI18n() {
+  document.documentElement.lang = LANG === 'zh' ? 'zh-CN' : 'en';
+  document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = tr(el.dataset.i18n); });
+  document.querySelectorAll('[data-i18n-title]').forEach(el => { el.title = tr(el.dataset.i18nTitle); });
+  document.querySelectorAll('[data-i18n-ph]').forEach(el => { el.placeholder = tr(el.dataset.i18nPh); });
+  $('#emptyInner').innerHTML = tr('empty');
+  $('#lang').textContent = tr('langBtn');
+}
 
 const fnById = new Map(G.functions.map(f => [f.id, f]));
 const pkgById = new Map(G.packages.map(p => [p.id, p]));
@@ -171,9 +345,9 @@ const ENTRIES = (G.meta.entries || []).filter(id => fnById.has(id));   // where 
 const unitOf = id => fnById.has(id) ? 'pkg:' + fnById.get(id).package : (bById.has(id) ? 'b:' + id : null);
 
 const CATCOL = {db:'--database', http:'--cloud', mq:'--messagebus', fs:'--external', other:'--external'};
-const CATNAME = {db:'数据库', http:'HTTP / RPC', mq:'消息队列', fs:'文件系统', other:'其它'};
+
 const ROLECOL = {entry:'--frontend', init:'--frontend', registered:'--frontend', implicit:'--messagebus', generated:'--external', iface:'--external', api:'--backend', referenced:'--external', unused:'--dim'};
-const ROLENAME = {entry:'入口', init:'包初始化', registered:'被注册', implicit:'隐式（可能被图里看不到的调用方调用：外部代码经接口/反射，或仅类层次推测）', generated:'仅被生成的代码调用', iface:'接口方法（没人按名字调用）', api:'导出 API', referenced:'被当作值引用', unused:'无调用方（疑似未使用）'};
+
 const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 
 /* ───────────── state ───────────── */
@@ -183,7 +357,7 @@ const S = { expanded: new Set(), sel: null, q: '', showB: true,
   userRules: [], ruleOff: new Set(), hideSig: '',
   maxFanB: 0, maxFanF: 0,
   onlyReach: ENTRIES.length > 0 };   // with entries: hide what they cannot reach   // hide what more than N functions call (0 = off): external dependencies / own functions
-const FLAGNAME = {'external-iface': '外部接口', 'table': '查表分发', 'implicit-iface': '隐式接口', 'cha-fallback': '仅类层次推测', 'reflect': '反射', 'linkname': 'linkname'};
+
 
 /* ───────────── hiding ─────────────
    1. built-in policy: the model marks nodes / edges `hidden` with a reason (G.policy lists the reasons);
@@ -370,7 +544,7 @@ async function build() {
   const root = {id: 'root', layoutOptions: opts, children,
     edges: edges.map(e => ({id: e.eid, sources: [e.rev ? e.to : e.from], targets: [e.rev ? e.from : e.to]}))};
   if (info.size > 120) { // ELK blocks the page; say so and let it paint first
-    $('#info').innerHTML = `布局中… <b>${info.size}</b> 个节点 · <b>${edges.length}</b> 条边。节点很多时可能要十几秒，建议改用「聚焦」模式。`;
+    $('#info').innerHTML = tr('layoutBusy', info.size, edges.length);
     await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
   }
   let res = null, failed = null;
@@ -470,7 +644,7 @@ async function render(keepView) {
     let lab = '';
     if (e.items.length > 1 && (e.from.startsWith('pkg:') || e.to.startsWith('pkg:'))) lab = '×' + e.items.length;
     if (modes.size) lab += (lab ? ' ' : '') + [...modes].join('/');
-    if (e.cls === 'callback') lab = '闭包回调' + (lab ? ' ' + lab : '');
+    if (e.cls === 'callback') lab = tr('kind.callback') + (lab ? ' ' + lab : '');
     if (e.cls === 'dynamic') { const c = Math.max(...e.items.map(i => i.candidates || 0)); if (c) lab += (lab ? ' ' : '') + c + '?'; }
     const mp = e.pts ? midOf(e.pts) : {x: (a.x + a.w + b.x) / 2, y: (a.y + b.y + (a.h + b.h) / 2) / 2};
     const mx = mp.x, my = mp.y;
@@ -485,9 +659,9 @@ async function render(keepView) {
       t2 = fs + ' functions';
       if (S.mode !== 'focus') tog = `<rect class="tog" data-toggle="${esc(n.ref.id)}" x="${n.x + n.w - 24}" y="${n.y + 6}" width="18" height="18"/><text class="togt" x="${n.x + n.w - 15}" y="${n.y + 19}">+</text>`;
     } else if (n.kind === 'b') {
-      color = css(CATCOL[n.ref.category]); t1 = n.ref.path; t2 = (n.ref.kind === 'std' ? '标准库' : '第三方') + ' · ' + CATNAME[n.ref.category];
+      color = css(CATCOL[n.ref.category]); t1 = n.ref.path; t2 = tr(n.ref.kind === 'std' ? 'bkind.std' : 'bkind.third') + ' · ' + catName(n.ref.category);
     } else {
-      color = css(ROLECOL[n.ref.role] || '--backend'); t1 = n.ref.label; t2 = n.ref.pos || '包级变量初始化 + init()';
+      color = css(ROLECOL[n.ref.role] || '--backend'); t1 = n.ref.label; t2 = n.ref.pos || tr('pkgInitPos');
     }
     const selc = (S.sel && S.sel.type === 'node' && S.sel.id === n.id ? ' sel' : '') + (seedN === n.id ? ' focus' : '');
     const mat = (n.kind === 'fn' && matches.has(n.ref.id)) || (n.kind === 'pkg' && matchPkgs.has(n.id)) ? ' match' : '';
@@ -517,17 +691,17 @@ function updateChrome() {
   const ruleHidden = hiddenPkg.size + [...hiddenB].filter(id => { const b = bById.get(id); return !(b.hidden && !S.show.has(b.hidden_by)); }).length
     + G.functions.filter(f => !hiddenPkg.has(f.package) && !(f.hidden && !S.show.has(f.hidden_by)) && fnHiddenBase(f)).length;
   const unreached = ENTRIES.length && S.onlyReach ? G.functions.filter(f => !f.reachable && !fnHiddenBase(f)).length : 0;
-  const parts = (G.policy || []).filter(p => byReason[p.id]).map(p => `${esc(p.title)} <b>${byReason[p.id]}</b> 条边`);
-  if (unreached) parts.push(`入口到不了 <b>${unreached}</b> 个函数`);
-  if (ruleHidden) parts.push(`规则 / 阈值隐藏 <b>${ruleHidden}</b> 个包、依赖或函数`);
+  const parts = (G.policy || []).filter(p => byReason[p.id]).map(p => tr('stEdges', esc(polTitle(p)), byReason[p.id]));
+  if (unreached) parts.push(tr('stUnreached', unreached));
+  if (ruleHidden) parts.push(tr('stRules', ruleHidden));
   let t = '';
   if (foc && S.focus) {
     const n = S.vis.fns.size;
-    t += `聚焦 <b>${esc(seedLabel(S.focus))}</b> · 下游 ${S.down >= 99 ? '全部' : S.down + ' 层'} · 上游 ${S.up} 层 · 显示 <b>${n}</b> 个函数`;
-    if (n > 120) t += ` <span class="warn">（偏多，可减小层数）</span>`;
+    t += tr('stFocus', esc(seedLabel(S.focus)), S.down, S.up, n);
+    if (n > 120) t += ` <span class="warn">${tr('stMany')}</span>`;
     t += '<br>';
   }
-  if (parts.length) t += `已隐藏：${parts.join(' · ')}。在「过滤」里可以显示或调整`;
+  if (parts.length) t += tr('stHidden', parts);
   $('#info').innerHTML = t;
 }
 
@@ -540,34 +714,34 @@ function reach(id) {
   reachCache.set(id, seen.size - 1);
   return seen.size - 1;
 }
-const fnItems = list => list.map(f => `<div class="item" data-focus-fn="${esc(f.id)}">${esc(f.label)} <span style="color:var(--muted)">· ${esc(f.package)}</span><small>下游 ${reach(f.id)} 个函数 · ${esc(f.pos)}</small></div>`).join('') || '<div class="hint">无</div>';
+const fnItems = list => list.map(f => `<div class="item" data-focus-fn="${esc(f.id)}">${esc(f.label)} <span style="color:var(--muted)">· ${esc(f.package)}</span><small>${tr('fnDown', reach(f.id), esc(f.pos))}</small></div>`).join('') || `<div class="hint">${tr('none')}</div>`;
 function pickerPanel(el) {
   const by = r => G.functions.filter(f => f.role === r && !fnHidden(f)).sort((a, b) => reach(b.id) - reach(a.id) || (a.id < b.id ? -1 : 1));
   const entry = by('entry'), reg = by('registered'), api = by('api');
-  el.innerHTML = `<h2>选择聚焦的起点</h2><div class="sub">聚焦模式只画一个节点的上下游。按下游规模从大到小排列；也可以直接搜索。</div>
-    ${ENTRIES.length ? `<h3>指定的入口 (${ENTRIES.length})</h3>${fnItems(ENTRIES.map(id => fnById.get(id)))}` : ''}
-    <h3>入口 (${entry.length})</h3>${fnItems(entry)}
-    <h3>被注册的回调 (${reg.length})</h3>${fnItems(reg.slice(0, 30))}
-    <h3>导出 API（前 30 / ${api.length}）</h3>${fnItems(api.slice(0, 30))}
-    <h3>包 (${visPkgs().length})</h3>${visPkgs().map(p => `<div class="item" data-focus-pkg="${esc(p.id)}">${esc(p.id)}<small>${funcsOfPkg.get(p.id).length} functions</small></div>`).join('')}`;
+  el.innerHTML = `<h2>${tr('pickTitle')}</h2><div class="sub">${tr('pickSub')}</div>
+    ${ENTRIES.length ? `<h3>${tr('pickEntries', ENTRIES.length)}</h3>${fnItems(ENTRIES.map(id => fnById.get(id)))}` : ''}
+    <h3>${tr('pickEntry', entry.length)}</h3>${fnItems(entry)}
+    <h3>${tr('pickReg', reg.length)}</h3>${fnItems(reg.slice(0, 30))}
+    <h3>${tr('pickApi', api.length)}</h3>${fnItems(api.slice(0, 30))}
+    <h3>${tr('pickPkgs', visPkgs().length)}</h3>${visPkgs().map(p => `<div class="item" data-focus-pkg="${esc(p.id)}">${esc(p.id)}<small>${funcsOfPkg.get(p.id).length} functions</small></div>`).join('')}`;
 }
 function searchPanel(el) {
   const qs = S.q.trim().toLowerCase(), foc = S.mode === 'focus';
   const fs = G.functions.filter(f => !fnHidden(f) && f.id.toLowerCase().includes(qs));
   const ps = visPkgs().filter(p => p.id.toLowerCase().includes(qs));
-  el.innerHTML = `<h2>搜索 “${esc(S.q.trim())}”</h2><div class="sub">${fs.length} 个函数 · ${ps.length} 个包${foc ? '，点击以它为中心聚焦' : ''}</div>` +
-    (ps.length ? '<h3>包</h3>' + ps.slice(0, 20).map(p => `<div class="item" ${foc ? 'data-focus-pkg' : 'data-goto-node'}="${foc ? esc(p.id) : 'pkg:' + esc(p.id)}">${esc(p.id)}</div>`).join('') : '') +
-    '<h3>函数</h3>' + fs.slice(0, 50).map(f => `<div class="item" ${foc ? 'data-focus-fn' : 'data-goto'}="${esc(f.id)}">${esc(f.label)} <span style="color:var(--muted)">· ${esc(f.package)}</span><small>${esc(f.pos)}</small></div>`).join('') +
-    (fs.length > 50 ? `<div class="hint">… 还有 ${fs.length - 50} 个，请缩小关键词</div>` : '');
+  el.innerHTML = `<h2>${esc(tr('searchTitle', S.q.trim()))}</h2><div class="sub">${tr('searchSub', fs.length, ps.length, foc)}</div>` +
+    (ps.length ? `<h3>${tr('packages')}</h3>` + ps.slice(0, 20).map(p => `<div class="item" ${foc ? 'data-focus-pkg' : 'data-goto-node'}="${foc ? esc(p.id) : 'pkg:' + esc(p.id)}">${esc(p.id)}</div>`).join('') : '') +
+    `<h3>${tr('functions')}</h3>` + fs.slice(0, 50).map(f => `<div class="item" ${foc ? 'data-focus-fn' : 'data-goto'}="${esc(f.id)}">${esc(f.label)} <span style="color:var(--muted)">· ${esc(f.package)}</span><small>${esc(f.pos)}</small></div>`).join('') +
+    (fs.length > 50 ? `<div class="hint">${tr('searchMore', fs.length - 50)}</div>` : '');
 }
 const kindChip = e => {
   const c = {direct:'', dynamic:'amber', registers:'orange', boundary:'violet', callback:'cyan'}[e.kind];
-  const nm = e.kind === 'callback' ? '闭包回调' : e.kind;
-  return `<span class="chip ${c}">${nm}</span>` + (e.mode !== 'call' ? `<span class="chip cyan">${e.mode}</span>` : '') + (e.candidates ? `<span class="chip amber">${e.candidates} 个候选</span>` : '')
-    + (e.flags || []).map(f => `<span class="chip rose">${FLAGNAME[f] || f}</span>`).join('')
+  const nm = e.kind === 'callback' ? tr('kind.callback') : e.kind;
+  return `<span class="chip ${c}">${nm}</span>` + (e.mode !== 'call' ? `<span class="chip cyan">${e.mode}</span>` : '') + (e.candidates ? `<span class="chip amber">${tr('candidates', e.candidates)}</span>` : '')
+    + (e.flags || []).map(f => `<span class="chip rose">${flagName(f)}</span>`).join('')
     + (e.ifaces && e.ifaces.length ? `<span class="chip">${esc(e.ifaces.join(', '))}</span>` : '');
 };
-const edgeNote = e => e.kind === 'callback' ? '调用的是定义在该函数内部的闭包（闭包已并入外层函数）' : '';
+const edgeNote = e => e.kind === 'callback' ? tr('cbNote') : '';
 const nameOf = id => fnById.has(id) ? (fnById.get(id).label + '  ·  ' + fnById.get(id).package) : (bById.has(id) ? bById.get(id).path : id);
 function edgeList(es, dirKey) {
   return es.map(e => `<div class="item" data-goto="${esc(e[dirKey])}">${esc(nameOf(e[dirKey]))}<small>${kindChip(e)} ${e.sites.map(esc).join(' · ')}${edgeNote(e) ? '<br>' + edgeNote(e) : ''}</small></div>`).join('');
@@ -578,26 +752,26 @@ function panel() {
   if (!s && S.q.trim().length >= 2) return searchPanel(el);
   if (!s && S.mode === 'focus' && !S.focus) return pickerPanel(el);
   if (!s) {
-    el.innerHTML = `<h2>${esc(G.meta.module)}</h2><div class="sub">算法 ${esc(G.meta.algo)} · ${esc(G.meta.go_version)}</div>
-      <div class="hint">点击节点：高亮上下游，并显示详情。<br>点击节点右上角 <b>+</b> 或分组标题：展开 / 折叠包。<br>点击连线：查看调用点代码位置。<br>双击节点：以它为中心聚焦（只看上下游）。<br>拖动画布平移，滚轮缩放。</div>
-      <h3>图例</h3><div class="legend">
-        <span><i class="sw" style="color:var(--backend)"></i>自有包 / 函数</span>
-        <span><i class="sw" style="color:var(--frontend)"></i>入口 / 被注册</span>
-        <span><i class="sw" style="color:var(--database)"></i>数据库</span>
-        <span><i class="sw" style="color:var(--cloud)"></i>HTTP / RPC</span>
-        <span><i class="sw" style="color:var(--external)"></i>其它外部</span>
-        <span><i class="ln"></i>直接调用</span>
-        <span><i class="ln" style="border-top-style:dashed"></i>接口 / 函数值（?=候选数）</span>
-        <span><i class="ln" style="border-top-style:dashed;border-color:var(--messagebus)"></i>注册（函数值传给外部）</span>
-        <span><i class="ln" style="border-top-style:dotted;border-color:var(--edge-cb)"></i>闭包回调（调用的是 F 里定义的闭包）</span></div>
-      <h3>默认隐藏的内容</h3><div class="hint">${(G.policy || []).map(p => `<b>${esc(p.title)}</b>：${esc(p.description)}`).join('<br>')}<br>在右上角「过滤」里可以显示它们，也可以添加忽略规则。</div>
-      <h3>函数 role</h3><div class="hint">入口 · 包初始化 · 被注册 · 隐式 · 仅被生成代码调用 · 接口方法 · 导出 API · 被当作值引用 · <span style="color:var(--security)">无调用方（疑似未使用）</span>。「疑似未使用」仍不是死代码的证明：按名字的反射、cgo 导出等没有建模。</div>`;
+    el.innerHTML = `<h2>${esc(G.meta.module)}</h2><div class="sub">${esc(tr('algo', G.meta.algo, G.meta.go_version))}</div>
+      <div class="hint">${tr('helpLines')}</div>
+      <h3>${tr('legend')}</h3><div class="legend">
+        <span><i class="sw" style="color:var(--backend)"></i>${tr('leg.own')}</span>
+        <span><i class="sw" style="color:var(--frontend)"></i>${tr('leg.entry')}</span>
+        <span><i class="sw" style="color:var(--database)"></i>${tr('leg.db')}</span>
+        <span><i class="sw" style="color:var(--cloud)"></i>${tr('leg.http')}</span>
+        <span><i class="sw" style="color:var(--external)"></i>${tr('leg.other')}</span>
+        <span><i class="ln"></i>${tr('leg.direct')}</span>
+        <span><i class="ln" style="border-top-style:dashed"></i>${tr('leg.dynamic')}</span>
+        <span><i class="ln" style="border-top-style:dashed;border-color:var(--messagebus)"></i>${tr('leg.registers')}</span>
+        <span><i class="ln" style="border-top-style:dotted;border-color:var(--edge-cb)"></i>${tr('leg.callback')}</span></div>
+      <h3>${tr('hiddenByDefault')}</h3><div class="hint">${(G.policy || []).map(p => `<b>${esc(polTitle(p))}</b>${tr('colon')}${esc(polDesc(p))}`).join('<br>')}<br>${tr('hiddenFoot')}</div>
+      <h3>${tr('rolesTitle')}</h3><div class="hint">${tr('rolesText')}</div>`;
     return;
   }
   if (s.type === 'edge') {
     const e = scene.edges.find(e => e.key === s.id);
     if (!e) { S.sel = null; return panel(); }
-    el.innerHTML = `<h2>${e.items.length} 条调用</h2><div class="sub">${esc(e.from.replace(/^[a-z]+:/, ''))} → ${esc(e.to.replace(/^[a-z]+:/, ''))}</div>` +
+    el.innerHTML = `<h2>${tr('nCalls', e.items.length)}</h2><div class="sub">${esc(e.from.replace(/^[a-z]+:/, ''))} → ${esc(e.to.replace(/^[a-z]+:/, ''))}</div>` +
       e.items.map(i => `<div class="item"><span data-goto="${esc(i.from)}">${esc(nameOf(i.from))}</span> → <span data-goto="${esc(i.to)}">${esc(nameOf(i.to))}</span><small>${kindChip(i)} ${i.sites.map(esc).join(' · ')}</small></div>`).join('');
     return;
   }
@@ -605,17 +779,17 @@ function panel() {
   if (!n || !n.ref) { S.sel = null; return panel(); }
   if (n.kind === 'fn') {
     const f = n.ref;
-    el.innerHTML = `<h2>${esc(f.label)}</h2><div class="sub">${esc(f.id)}</div><button class="fbtn" data-focus-fn="${esc(f.id)}">⌖ 以此为中心聚焦</button><button class="fbtn ghost" data-ignore="${esc(JSON.stringify({function: f.id}))}" title="忽略规则：只隐藏这个函数">忽略此函数</button><button class="fbtn ghost" data-ignore="${esc(JSON.stringify({package: f.package}))}" title="忽略规则：隐藏整个包">忽略包 ${esc(f.package)}</button>${f.fan_in ? `<span class="chip">被 ${f.fan_in} 个函数调用</span>` : ''}
-      <div>${f.role ? `<span class="chip ${f.role === 'unused' ? 'rose' : 'cyan'}">${ROLENAME[f.role] || f.role}</span>` : ''}${f.exported ? '<span class="chip green">exported</span>' : ''}</div>
-      <h3>位置</h3><div>${esc(f.pos || '包级变量初始化表达式 + 所有 init() 函数（合并为一个节点）')}</div>
-      ${f.implicit_callers ? `<h3>隐式调用方</h3><div>${f.implicit_callers} 个函数可能把它交给外部代码经接口 / 反射调用。</div><div class="hint" style="margin-top:4px">图里最多画 ${3} 条，且已有调用方的函数不画；这里是真实数量。</div>` : ''}
-      ${f.implements && f.implements.length ? `<h3>实现的接口</h3>${f.implements.map(i => `<div>${esc(i)}</div>`).join('')}${f.role === 'iface' ? '<div class="hint" style="margin-top:6px">没有调用方，但它实现了接口：可能被图里看不到的接口调用方调用，也可能只是为了满足接口（如标记方法）。不是死代码。</div>' : ''}` : ''}
-      <h3>被调用 (${(inE.get(f.id) || []).length})</h3>${edgeList(inE.get(f.id) || [], 'from') || '<div class="hint">无（入口、导出 API 或疑似死代码）</div>'}
-      <h3>调用 (${(outE.get(f.id) || []).length})</h3>${edgeList(outE.get(f.id) || [], 'to') || '<div class="hint">无</div>'}`;
+    el.innerHTML = `<h2>${esc(f.label)}</h2><div class="sub">${esc(f.id)}</div><button class="fbtn" data-focus-fn="${esc(f.id)}">${tr('focusThis')}</button><button class="fbtn ghost" data-ignore="${esc(JSON.stringify({function: f.id}))}" title="${esc(tr('ignoreFnTip'))}">${tr('ignoreFn')}</button><button class="fbtn ghost" data-ignore="${esc(JSON.stringify({package: f.package}))}" title="${esc(tr('ignorePkgTip'))}">${esc(tr('ignorePkg', f.package))}</button>${f.fan_in ? `<span class="chip">${tr('calledBy', f.fan_in)}</span>` : ''}
+      <div>${f.role ? `<span class="chip ${f.role === 'unused' ? 'rose' : 'cyan'}">${roleName(f.role)}</span>` : ''}${f.exported ? '<span class="chip green">exported</span>' : ''}</div>
+      <h3>${tr('location')}</h3><div>${esc(f.pos || tr('pkgInitLong'))}</div>
+      ${f.implicit_callers ? `<h3>${tr('implicitCallers')}</h3><div>${tr('implicitText', f.implicit_callers)}</div><div class="hint" style="margin-top:4px">${tr('implicitHint')}</div>` : ''}
+      ${f.implements && f.implements.length ? `<h3>${tr('implementsTitle')}</h3>${f.implements.map(i => `<div>${esc(i)}</div>`).join('')}${f.role === 'iface' ? `<div class="hint" style="margin-top:6px">${tr('ifaceHint')}</div>` : ''}` : ''}
+      <h3>${tr('calledByH', (inE.get(f.id) || []).length)}</h3>${edgeList(inE.get(f.id) || [], 'from') || `<div class="hint">${tr('noCallers')}</div>`}
+      <h3>${tr('callsH', (outE.get(f.id) || []).length)}</h3>${edgeList(outE.get(f.id) || [], 'to') || `<div class="hint">${tr('none')}</div>`}`;
   } else if (n.kind === 'b') {
     const b = n.ref;
-    el.innerHTML = `<h2>${esc(b.path)}</h2><div class="sub">外部依赖 · ${b.kind === 'std' ? '标准库' : '第三方'}</div><span class="chip violet">${CATNAME[b.category]}</span><span class="chip">被 ${b.fan_in} 个函数调用</span><br><button class="fbtn" data-focus-b="${esc(b.id)}">⌖ 以此为中心聚焦</button><button class="fbtn ghost" data-ignore="${esc(JSON.stringify(b.kind === 'third' ? {module: b.module} : {package: b.path}))}" title="忽略规则：隐藏这个依赖">忽略 ${esc(b.kind === 'third' ? '模块 ' + b.module : b.path)}</button>
-      <h3>被调用 (${(inE.get(b.id) || []).length})</h3>${edgeList(inE.get(b.id) || [], 'from')}`;
+    el.innerHTML = `<h2>${esc(b.path)}</h2><div class="sub">${tr('extDep')} · ${tr(b.kind === 'std' ? 'bkind.std' : 'bkind.third')}</div><span class="chip violet">${catName(b.category)}</span><span class="chip">${tr('calledBy', b.fan_in)}</span><br><button class="fbtn" data-focus-b="${esc(b.id)}">${tr('focusThis')}</button><button class="fbtn ghost" data-ignore="${esc(JSON.stringify(b.kind === 'third' ? {module: b.module} : {package: b.path}))}" title="${esc(tr('ignoreDepTip'))}">${esc(tr('ignoreDep', b.kind === 'third' ? tr('modulePrefix') + b.module : b.path))}</button>
+      <h3>${tr('calledByH', (inE.get(b.id) || []).length)}</h3>${edgeList(inE.get(b.id) || [], 'from')}`;
   } else {
     const p = n.ref, fs = funcsOfPkg.get(p.id);
     const ids = new Set(fs.map(f => f.id));
@@ -626,10 +800,10 @@ function panel() {
       if (a && !b) { const u = unitOf(e.to); if (u) outP.set(u, (outP.get(u) || 0) + 1); }
       if (b && !a) { const u = unitOf(e.from); if (u) inP.set(u, (inP.get(u) || 0) + 1); }
     }
-    const lst = m => [...m].sort((a, b) => b[1] - a[1]).map(([u, c]) => `<div class="item" data-goto-node="${esc(u)}">${esc(u.replace(/^[a-z]+:(ext:)?/, ''))}<small>${c} 条调用</small></div>`).join('') || '<div class="hint">无</div>';
-    el.innerHTML = `<h2>${esc(p.id)}</h2><div class="sub">${esc(p.path)}</div><span class="chip green">${fs.length} functions</span><br><button class="fbtn" data-focus-pkg="${esc(p.id)}">⌖ 以此包为中心聚焦</button><button class="fbtn ghost" data-ignore="${esc(JSON.stringify({package: p.id}))}" title="忽略规则：隐藏整个包">忽略此包</button>
-      <h3>调用到</h3>${lst(outP)}<h3>被调用自</h3>${lst(inP)}
-      <h3>函数</h3>${fs.map(f => `<div class="item" data-goto="${esc(f.id)}">${esc(f.label)}<small>${esc(f.pos || '包初始化')}${f.role ? ' · ' + (ROLENAME[f.role] || f.role) : ''}</small></div>`).join('')}`;
+    const lst = m => [...m].sort((a, b) => b[1] - a[1]).map(([u, c]) => `<div class="item" data-goto-node="${esc(u)}">${esc(u.replace(/^[a-z]+:(ext:)?/, ''))}<small>${tr('nCallsShort', c)}</small></div>`).join('') || `<div class="hint">${tr('none')}</div>`;
+    el.innerHTML = `<h2>${esc(p.id)}</h2><div class="sub">${esc(p.path)}</div><span class="chip green">${fs.length} functions</span><br><button class="fbtn" data-focus-pkg="${esc(p.id)}">${tr('focusThisPkg')}</button><button class="fbtn ghost" data-ignore="${esc(JSON.stringify({package: p.id}))}" title="${esc(tr('ignorePkgTip'))}">${tr('ignoreThisPkg')}</button>
+      <h3>${tr('callsInto')}</h3>${lst(outP)}<h3>${tr('calledFrom')}</h3>${lst(inP)}
+      <h3>${tr('funcsH')}</h3>${fs.map(f => `<div class="item" data-goto="${esc(f.id)}">${esc(f.label)}<small>${esc(f.pos || tr('pkgInit'))}${f.role ? ' · ' + roleName(f.role) : ''}</small></div>`).join('')}`;
   }
 }
 
@@ -758,37 +932,39 @@ window.addEventListener('resize', () => fit());
 
 /* ───────────── filter panel: what is hidden, and ignore rules ───────────── */
 const fpanel = $('#filterPanel');
-function ruleText(r) { return [r.module && '模块 ' + r.module, r.package && '包 ' + r.package, r.function && '函数 ' + r.function, r.tag && '标签 ' + r.tag].filter(Boolean).join(' 且 '); }
+function ruleText(r) { return [r.module && tr('rModule') + r.module, r.package && tr('rPackage') + r.package, r.function && tr('rFunction') + r.function, r.tag && tr('rTag') + r.tag].filter(Boolean).join(tr('rAnd')); }
 function renderFilter() {
   const cnt = {};   // reason -> [edges, nodes]
   const bump = (reason, i) => { (cnt[reason] = cnt[reason] || [0, 0])[i]++; };
   G.edges.forEach(e => e.hidden && bump(e.hidden_by, 0));
   G.boundaries.forEach(b => b.hidden && bump(b.hidden_by, 1));
   G.functions.forEach(f => f.hidden && bump(f.hidden_by, 1));
-  const reasons = (G.policy || []).filter(p => cnt[p.id]).map(p => `<label class="chk"><input type="checkbox" data-reason="${esc(p.id)}" ${S.show.has(p.id) ? 'checked' : ''}>显示「${esc(p.title)}」<span class="cnt">${cnt[p.id][0]} 条边${cnt[p.id][1] ? ' · ' + cnt[p.id][1] + ' 个节点' : ''}</span></label><div class="hint small">${esc(p.description)}</div>`).join('') || '<div class="hint">没有被默认隐藏的内容</div>';
-  const rules = allRules().map(r => `<div class="rule"><label class="chk"><input type="checkbox" data-rule-on="${esc(r.id)}" ${S.ruleOff.has(r.id) ? '' : 'checked'}>忽略 ${esc(ruleText(r))}</label>${r.src === 'file' ? '<span class="cnt">规则文件</span>' : `<button class="x" data-rule-del="${esc(r.id)}" title="删除这条规则">✕</button>`}</div>`).join('') || '<div class="hint">还没有忽略规则</div>';
-  const entryBox = ENTRIES.length ? `<label class="chk"><input type="checkbox" id="onlyReach" ${S.onlyReach ? 'checked' : ''}>只显示入口可达的部分</label><div class="hint small">入口：${ENTRIES.slice(0, 4).map(esc).join('、')}${ENTRIES.length > 4 ? ' 等 ' + ENTRIES.length + ' 个' : ''}。可达 = 沿非猜测的边能走到；包初始化在 main 之前运行，也算起点。</div>` : '';
-  fpanel.innerHTML = `<h3>显示</h3>${entryBox}<label class="chk"><input type="checkbox" id="showB" ${S.showB ? 'checked' : ''}>外部依赖（标准库、第三方）</label>
-    <h3>默认隐藏的内容</h3>${reasons}
-    <h3>按调用次数隐藏（“常见”的东西）</h3>
-    <div class="thr"><label>外部依赖：被超过 <input type="number" id="maxFanB" min="0" value="${S.maxFanB}"> 个函数调用时隐藏</label></div>
-    <div class="hint small">${S.maxFanB ? `现在会隐藏 ${G.boundaries.filter(b => b.fan_in > S.maxFanB).length} 个外部依赖` : '未启用'}</div>
-    <div class="thr"><label>自有函数：被超过 <input type="number" id="maxFanF" min="0" value="${S.maxFanF}"> 个函数调用时隐藏</label></div>
-    <div class="hint small">${S.maxFanF ? `现在会隐藏 ${G.functions.filter(f => f.fan_in > S.maxFanF).length} 个自有函数` : '未启用'}</div>
-    <div class="hint small">0 = 不启用。调用次数 = 有多少个不同的函数调用或引用它（猜测的边不算）。下面是现在还显示的、被调用最多的，点 ✕ 直接忽略。</div>
+  const reasons = (G.policy || []).filter(p => cnt[p.id]).map(p => `<label class="chk"><input type="checkbox" data-reason="${esc(p.id)}" ${S.show.has(p.id) ? 'checked' : ''}>${esc(tr('fShowReason', polTitle(p)))}<span class="cnt">${tr('fCount', cnt[p.id][0], cnt[p.id][1])}</span></label><div class="hint small">${esc(polDesc(p))}</div>`).join('') || `<div class="hint">${tr('fNoHidden')}</div>`;
+  const rules = allRules().map(r => `<div class="rule"><label class="chk"><input type="checkbox" data-rule-on="${esc(r.id)}" ${S.ruleOff.has(r.id) ? '' : 'checked'}>${esc(tr('fIgnore', ruleText(r)))}</label>${r.src === 'file' ? `<span class="cnt">${tr('fRuleFile')}</span>` : `<button class="x" data-rule-del="${esc(r.id)}" title="${esc(tr('fDelRule'))}">✕</button>`}</div>`).join('') || `<div class="hint">${tr('fNoRules')}</div>`;
+  const entryBox = ENTRIES.length ? `<label class="chk"><input type="checkbox" id="onlyReach" ${S.onlyReach ? 'checked' : ''}>${tr('fOnlyReach')}</label><div class="hint small">${tr('fEntries', ENTRIES.slice(0, 4).map(esc).join(tr('sep')), ENTRIES.length, ENTRIES.length > 4)}</div>` : '';
+  const inpB = `<input type="number" id="maxFanB" min="0" value="${S.maxFanB}">`, inpF = `<input type="number" id="maxFanF" min="0" value="${S.maxFanF}">`;
+  fpanel.innerHTML = `<h3>${tr('fShow')}</h3>${entryBox}<label class="chk"><input type="checkbox" id="showB" ${S.showB ? 'checked' : ''}>${tr('fExt')}</label>
+    <h3>${tr('hiddenByDefault')}</h3>${reasons}
+    <h3>${tr('fFan')}</h3>
+    <div class="thr"><label>${tr('fFanB', inpB)}</label></div>
+    <div class="hint small">${S.maxFanB ? tr('fWouldB', G.boundaries.filter(b => b.fan_in > S.maxFanB).length) : tr('fOff')}</div>
+    <div class="thr"><label>${tr('fFanF', inpF)}</label></div>
+    <div class="hint small">${S.maxFanF ? tr('fWouldF', G.functions.filter(f => f.fan_in > S.maxFanF).length) : tr('fOff')}</div>
+    <div class="hint small">${tr('fFanHelp')}</div>
     <div class="top">${topList()}</div>
-    <h3>忽略规则</h3>${rules}
-    <div class="addrule"><select id="ruleKind"><option value="module">模块</option><option value="package">包 / 导入路径</option><option value="function">函数（末尾 * 表示前缀）</option><option value="tag">标签</option></select><input id="ruleVal" placeholder="如 golang.org/x/sys、internal/gen/*"><button id="ruleAdd">添加</button></div>
-    <div class="row"><button data-preset='{"tag":"internal"}'>忽略所有 internal 包</button><button data-preset='{"module":"std"}'>忽略标准库</button></div>
-    <div class="row"><button id="ruleExport">导出规则</button><button id="ruleImport">导入规则</button><input type="file" id="ruleFile" accept="application/json,.json" hidden></div>
-    <div class="hint small" style="margin:10px 0 0">匹配按路径元素边界：<code>golang.org/x/tools</code> 匹配它的子包，不匹配 <code>golang.org/x/toolsfoo</code>；末尾 <code>*</code> 表示纯前缀；标签如 <code>internal</code>、<code>role:unused</code>。规则只在浏览器里生效，导出后可用 <code>calltrail run -rules</code> / <code>calltrail annotate -rules</code> 带入。</div>`;
+    <h3>${tr('fRules')}</h3>${rules}
+    <div class="addrule"><select id="ruleKind"><option value="module">${tr('kModule')}</option><option value="package">${tr('kPackage')}</option><option value="function">${tr('kFunction')}</option><option value="tag">${tr('kTag')}</option></select><input id="ruleVal" placeholder="${esc(tr('rulePh'))}"><button id="ruleAdd">${tr('add')}</button></div>
+    <div class="row"><button data-preset='{"tag":"internal"}'>${tr('presetInternal')}</button><button data-preset='{"module":"std"}'>${tr('presetStd')}</button></div>
+    <div class="row"><button id="ruleExport">${tr('exportRules')}</button><button id="ruleImport">${tr('importRules')}</button><input type="file" id="ruleFile" accept="application/json,.json" hidden></div>
+    <div class="hint small" style="margin:10px 0 0">${tr('fMatchHelp')}</div>`;
 }
 function topList() {
   const bs = G.boundaries.filter(b => !hiddenB.has(b.id)).sort((a, b) => b.fan_in - a.fan_in || (a.path < b.path ? -1 : 1)).slice(0, 8);
   const fs = G.functions.filter(f => !fnHidden(f) && f.fan_in > 1).sort((a, b) => b.fan_in - a.fan_in || (a.id < b.id ? -1 : 1)).slice(0, 8);
-  const row = (name, n, rule) => `<div class="rule"><span style="flex:1;min-width:0;word-break:break-all">${esc(name)}</span><span class="cnt" style="margin:0 6px">${n}</span><button class="x" data-ignore="${esc(JSON.stringify(rule))}" title="忽略">✕</button></div>`;
-  return `<div class="hint small" style="margin:0 0 4px">最常被调用的外部依赖</div>${bs.map(b => row(b.path, b.fan_in, b.kind === 'third' ? {module: b.module} : {package: b.path})).join('') || '<div class="hint small">无</div>'}
-    <div class="hint small" style="margin:8px 0 4px">最常被调用的自有函数</div>${fs.map(f => row(f.label + '  ·  ' + f.package, f.fan_in, {function: f.id})).join('') || '<div class="hint small">无</div>'}`;
+  const row = (name, n, rule) => `<div class="rule"><span style="flex:1;min-width:0;word-break:break-all">${esc(name)}</span><span class="cnt" style="margin:0 6px">${n}</span><button class="x" data-ignore="${esc(JSON.stringify(rule))}" title="${esc(tr('ignoreTip'))}">✕</button></div>`;
+  const none = `<div class="hint small">${tr('none')}</div>`;
+  return `<div class="hint small" style="margin:0 0 4px">${tr('topB')}</div>${bs.map(b => row(b.path, b.fan_in, b.kind === 'third' ? {module: b.module} : {package: b.path})).join('') || none}
+    <div class="hint small" style="margin:8px 0 4px">${tr('topF')}</div>${fs.map(f => row(f.label + '  ·  ' + f.package, f.fan_in, {function: f.id})).join('') || none}`;
 }
 function syncQuick() { $('#hideCommon').checked = !S.show.has('low-signal'); }
 function rulesChanged() {
@@ -812,8 +988,8 @@ fpanel.addEventListener('change', e => {
   if (t.dataset.ruleOn) { t.checked ? S.ruleOff.delete(t.dataset.ruleOn) : S.ruleOff.add(t.dataset.ruleOn); return rulesChanged(); }
   if (t.id === 'ruleFile' && t.files[0]) {
     t.files[0].text().then(txt => {
-      let rs; try { const j = JSON.parse(txt); rs = Array.isArray(j) ? j : j.rules; } catch (err) { return alert('不是有效的规则文件：' + err.message); }
-      if (!Array.isArray(rs)) return alert('规则文件应为 {"rules": [...]} 或数组');
+      let rs; try { const j = JSON.parse(txt); rs = Array.isArray(j) ? j : j.rules; } catch (err) { return alert(tr('badRules', err.message)); }
+      if (!Array.isArray(rs)) return alert(tr('badShape'));
       let n = 0;
       for (const r of rs) { if (r && (r.module || r.package || r.function || r.tag)) { S.userRules.push({id: 'u' + Date.now().toString(36) + (n++), module: r.module, package: r.package, function: r.function, tag: r.tag, note: r.note}); } }
       rulesChanged();
@@ -842,11 +1018,21 @@ $('#hideCommon').onchange = e => { e.target.checked ? S.show.delete('low-signal'
 $('#filter').onclick = () => { fpanel.hidden = !fpanel.hidden; if (!fpanel.hidden) renderFilter(); };
 document.addEventListener('click', e => { if (!fpanel.hidden && !fpanel.contains(e.target) && e.target.id !== 'filter') fpanel.hidden = true; });
 
+/* ───────────── language ───────────── */
+function setLang(l) {
+  LANG = l;
+  try { localStorage.setItem('calltrail.lang', l); } catch (e) {}
+  applyStaticI18n(); updateCommonTip(); updateStats();
+  setTheme(document.documentElement.dataset.theme, false);   // also redraws, which rebuilds the info line and the side panel
+  if (!fpanel.hidden) renderFilter();
+}
+$('#lang').onclick = () => setLang(LANG === 'zh' ? 'en' : 'zh');
+
 /* ───────────── theme ───────────── */
 function setTheme(t, save) {
   document.documentElement.dataset.theme = t;
   if (save) { try { localStorage.setItem('calltrail.theme', t); } catch (e) {} }
-  $('#theme').textContent = t === 'light' ? '☾ 深色' : '☀ 浅色';
+  $('#theme').textContent = tr(t === 'light' ? 'toDark' : 'toLight');
   if (scene) render(true);    // node colours are resolved from the CSS variables at draw time
 }
 $('#theme').onclick = () => setTheme(document.documentElement.dataset.theme === 'light' ? 'dark' : 'light', true);
@@ -860,10 +1046,15 @@ $('#title').textContent = G.meta.module;
 recomputeHidden();
 syncQuick();
 if (ENTRIES.length) { S.focus = {type: 'fn', id: ENTRIES[0]}; S.sel = {type: 'node', id: 'f:' + ENTRIES[0]}; S.down = 99; S.up = 0; }
-{ const common = G.boundaries.filter(b => b.hidden_by === 'low-signal').map(b => b.path);
-  $('#commonLbl').title = common.length ? `默认隐藏 ${common.length} 个常见依赖：${common.slice(0, 14).join('、')}${common.length > 14 ? '…' : ''}（内置清单）。想按调用次数隐藏更多，见「过滤」。` : '没有常见依赖需要隐藏'; }
+function updateCommonTip() {
+  const common = G.boundaries.filter(b => b.hidden_by === 'low-signal').map(b => b.path);
+  $('#commonLbl').title = common.length ? tr('commonTip', common.length, common.slice(0, 14).join(tr('sep')), common.length > 14) : tr('commonNone');
+}
+applyStaticI18n();
+updateCommonTip();
 setTheme(document.documentElement.dataset.theme, false);
-$('#stats').textContent = `${G.packages.length} 个包 · ${G.functions.length} 个自有函数（全部 ${G.meta.total_functions}）· ${G.edges.length} 条边 · ${G.boundaries.length} 个外部依赖`;
+updateStats();
+function updateStats() { $('#stats').textContent = tr('stats', G.packages.length, G.functions.length, G.meta.total_functions, G.edges.length, G.boundaries.length); }
 render();
 </script>
 </body>

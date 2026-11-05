@@ -29,7 +29,7 @@ calltrail run -rules calltrail.rules.json -out-dir calltrail-out   # 带入忽�
 | 外部依赖 | `module`（标准库是 `std`，第三方是它的 module 路径）、`tags`（`std`/`third`、`cat:db`…、`low-signal`）、`fan_in`、`hidden` / `hidden_by` |
 | 边 | `id`（稳定唯一）、`hidden` / `hidden_by` |
 | 包 / 函数 / 外部依赖 | 指定了入口时还有 `reachable`（见下） |
-| 顶层 | `policy`（隐藏原因的说明，视图用它来生成开关）、`rules`（用户规则） |
+| 顶层 | `policy`（隐藏原因的说明，视图用它来生成开关；每条带中英文的 `title` / `description` 与 `title_en` / `description_en`）、`rules`（用户规则） |
 
 ### 内置的隐藏策略（原因）
 
@@ -115,10 +115,13 @@ calltrail demo     ...  [-o out.html]        # 只要 html
 
 默认跟随系统（`prefers-color-scheme`），右上角按钮手动切换，选择记在浏览器里；没手动选过时，系统切换会跟着变。浅色下语义色保持同一含义、只是加深以便在白底上读清（遵循 Archify 的“主题等价”规则）。所有颜色都走 CSS 变量，箭头、网格线、分组底色也跟着换。
 
+## 界面语言
+
+网页有中文和英文两种界面，右上角的按钮切换。默认按浏览器语言（`zh*` 显示中文，其它显示英文），选择记在浏览器里（localStorage 的 `calltrail.lang`）。所有界面文字都在页面里的一份字典中；隐藏原因的名称和说明来自 model 的 `policy`（`title` / `description` 是中文，`title_en` / `description_en` 是英文），所以加第三种语言只需要补字典和这几个字段。模型里的数据（函数名、路径、role 的取值）不翻译。
+
 ## 还没做
 
 - **Archify 适配器**（视图层的第二个视图）：接口已经留好（读 model、用 `Visible()` 过滤），适配器本身没写。
 - **规则里的“只显示”**（白名单）：现在只有“忽略”。
 - **gRPC / HTTP 入口识别**与“单个接口的完整链路视图”：计划中；入口识别会作为加工层的一种标注（`entrypoint`）加进来。
 - 用户在界面里设置的规则只存在浏览器本地；要共享给团队需要导出后放进仓库、用 `-rules` 带入。
-- 网页界面目前只有中文。

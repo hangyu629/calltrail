@@ -29,7 +29,7 @@ calltrail run -rules calltrail.rules.json -out-dir calltrail-out   # with ignore
 | External dependency | `module` (`std` for the standard library, the module path for third-party), `tags` (`std`/`third`, `cat:db`…, `low-signal`), `fan_in`, `hidden` / `hidden_by` |
 | Edge | `id` (stable, unique), `hidden` / `hidden_by` |
 | Package / function / dependency | `reachable`, when an entry was given (see below) |
-| Top level | `policy` (explains the hiding reasons; views build their switches from it), `rules` (the user's rules) |
+| Top level | `policy` (explains the hiding reasons; views build their switches from it; each entry has `title` / `description` in Chinese and `title_en` / `description_en` in English), `rules` (the user's rules) |
 
 ### Built-in hiding policy (reasons)
 
@@ -115,10 +115,13 @@ calltrail demo     ...  [-o out.html]        # only the html
 
 It follows the system (`prefers-color-scheme`) by default and can be switched with the button at the top right; the choice is remembered in the browser, and until the user chooses, a change of the system theme is followed. In light mode a semantic colour keeps its meaning and is only darkened so it reads on white (Archify's theme-parity rule). Every colour, including arrowheads, the grid and group backgrounds, comes from a CSS variable.
 
+## Interface language
+
+The page has a Chinese and an English interface, switched with the button at the top right. It starts from the browser language (`zh*` gives Chinese, anything else English) and the choice is remembered in the browser (`calltrail.lang` in localStorage). All interface text lives in one dictionary inside the page; the names and descriptions of the hiding reasons come from the model's `policy` (`title` / `description` are Chinese, `title_en` / `description_en` English), so a third language needs only a dictionary and those fields. Data from the model (function names, paths, role values) is not translated.
+
 ## Not done yet
 
 - **An Archify adapter** (the second view of the view layer): the interface is ready (read the model, filter with `Visible()`); the adapter itself is not written.
 - **"Show only" rules** (an allow-list): there are only "ignore" rules.
 - **gRPC / HTTP entry detection** and a "complete path of one endpoint" view: planned. Entry detection would arrive as a model-layer annotation (`entrypoint`).
 - The rules a user sets in the page live only in that browser; to share them with a team, export them, commit the file and pass it with `-rules`.
-- The page itself is in Chinese only.

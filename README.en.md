@@ -104,6 +104,7 @@ Analysis is the slow part. To change only the rules or the view, reuse the same 
 - **"Hide common dependencies" in the top bar**: hides standard-library packages that are called from everywhere, such as `fmt` and `errors` (on by default).
 - **"Filter" panel**: show what is hidden by reason; hide "common" dependencies or functions by **how many functions call them**; manage ignore rules; with an entry, show only what the entry can reach.
 - **Dark / light**: the button at the top right; follows the system by default.
+- **English / 中文**: the language button at the top right. It starts from the browser language (Chinese for a Chinese browser, English otherwise) and the choice is remembered in the browser.
 
 ### Ignore rules
 
@@ -159,7 +160,6 @@ go test ./...        # tests for the analyzer and the model layer (generics, ent
 
 - Interface dispatch and calls through function values are approximations in any static analysis: there are extra edges (marked and folded by default) and some missing ones; see the validation documents.
 - "Probably unused" is not proof of dead code: reflection by name and cgo exports are not modelled.
-- The page itself is in Chinese only; there is no language switch yet.
 - Not done yet: exports to other views such as Archify, and gRPC / HTTP entry detection.
 
 ## Layout

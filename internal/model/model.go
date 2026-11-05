@@ -30,15 +30,31 @@ const (
 
 // Policy documents the reasons, so viewers can label their toggles from the data.
 var Policy = []PolicyReason{
-	{ReasonLowConfidence, "低可信边", "外部接口上的动态调用、按 map/slice 取函数的调用、仅类层次推测的调用；精度抽查里误报集中在这几类"},
-	{ReasonImplicit, "隐式边", "自有类型被转成外部接口（error、fmt.Stringer、any…）后，外部代码可能调用它的方法；过近似，用来让 role 更准"},
-	{ReasonLowSignal, "低信号依赖", "fmt、errors、strings、context… 到处都在调用，没有架构意义；只碰这些依赖的 init 也一并隐藏"},
+	{
+		ID: ReasonLowConfidence, Title: "低可信边", TitleEN: "Low-confidence edges",
+		Description:   "外部接口上的动态调用、按 map/slice 取函数的调用、仅类层次推测的调用；精度抽查里误报集中在这几类",
+		DescriptionEN: "Dynamic calls on external interfaces, calls through map/slice elements, and calls that are only class-hierarchy guesses; wrong edges concentrated in these categories in the precision audit",
+	},
+	{
+		ID: ReasonImplicit, Title: "隐式边", TitleEN: "Implicit edges",
+		Description:   "自有类型被转成外部接口（error、fmt.Stringer、any…）后，外部代码可能调用它的方法；过近似，用来让 role 更准",
+		DescriptionEN: "After an own type is converted to an external interface (error, fmt.Stringer, any, ...), external code may call its methods; an over-approximation that makes roles more accurate",
+	},
+	{
+		ID: ReasonLowSignal, Title: "低信号依赖", TitleEN: "Low-signal dependencies",
+		Description:   "fmt、errors、strings、context… 到处都在调用，没有架构意义；只碰这些依赖的 init 也一并隐藏",
+		DescriptionEN: "fmt, errors, strings, context, ... are called from everywhere and carry no architectural meaning; init code that touches only these is hidden as well",
+	},
 }
 
+// PolicyReason documents one hiding reason, in Chinese and English, so a view can build its
+// switches from the data in either language.
 type PolicyReason struct {
-	ID          string `json:"id"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
+	ID            string `json:"id"`
+	Title         string `json:"title"`
+	Description   string `json:"description"`
+	TitleEN       string `json:"title_en"`
+	DescriptionEN string `json:"description_en"`
 }
 
 type Model struct {
