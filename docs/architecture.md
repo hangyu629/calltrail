@@ -1,5 +1,7 @@
 # 架构
 
+[English](architecture.en.md) | [中文](architecture.md)
+
 calltrail 把 Go 代码里的调用关系**机械地**提取出来，整理成三层产出，再用一个自包含的网页浏览。下面的图都是 [Mermaid](https://mermaid.js.org/)，GitHub 上直接渲染。
 
 目录
@@ -290,7 +292,7 @@ flowchart LR
 
 - **静态对照**能发现：漏掉的直接调用、多余的直接边、泛型实例折叠是否正确。
 - **运行时对照**能发现：接口分发、回调、反射、初始化等静态分析的盲区。
-- 验证记录见 [precision-audit](precision-audit-2026-11-05.md)（抽查多余的边）、[recall-check](recall-check-2026-11-05.md)（用运行时调用栈查漏边）、[generics-validation](generics-validation-2026-11-05.md)（真实泛型项目）。
+- 英文摘要见 [validation.en.md](validation.en.md)；详细记录见 [precision-audit](precision-audit-2026-11-05.md)（抽查多余的边）、[recall-check](recall-check-2026-11-05.md)（用运行时调用栈查漏边）、[generics-validation](generics-validation-2026-11-05.md)（真实泛型项目）。
 
 ## 包结构
 

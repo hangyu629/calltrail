@@ -1,5 +1,7 @@
 # 三层产出：原始层 → 加工层 → 视图层
 
+[English](architecture-layers.en.md) | [中文](architecture-layers.md)
+
 ```
 Go 源码 ──calltrail analyze──▶ raw.json ──calltrail annotate──▶ model.json ──calltrail view──▶ viewer.html
           (x/tools)        事实            + 标注 + 规则          一个视图          （以后：archify.json …）
@@ -81,7 +83,7 @@ calltrail run -rules calltrail.rules.json -out-dir calltrail-out   # 带入忽�
 
 `fmt`、`errors` 这类到处都在调用的东西会把图糊成一团。有三层办法，从省事到精细：
 
-1. **顶栏的「隐藏常见依赖」开关**（默认开）。隐藏的是内置清单里的 26 个标准库依赖（`fmt`、`errors`、`strings`、`context`、`log`、`flag`…，鼠标放上去能看到完整清单），也就是 `low-signal` 这个原因。图里本来画的是**包级**的依赖节点（不是 `fmt.Println` 这样的单个函数），所以隐藏的是整个包。
+1. **顶栏的「隐藏常见依赖」开关**（默认开）。隐藏的是内置清单里的标准库依赖（26 个，如 `fmt`、`errors`、`strings`、`context`、`log`、`flag`，另有 `math/*` 和 `internal/*`；鼠标放上去能看到这份结果里实际有哪些），也就是 `low-signal` 这个原因。图里本来画的是**包级**的依赖节点（不是 `fmt.Println` 这样的单个函数），所以隐藏的是整个包。
 2. **按调用次数自动隐藏**（「过滤」里）：
    - 外部依赖：被超过 N 个不同函数调用的就隐藏；
    - 自有函数：被超过 N 个不同函数调用的就隐藏；
@@ -94,19 +96,19 @@ calltrail run -rules calltrail.rules.json -out-dir calltrail-out   # 带入忽�
 ## 命令
 
 ```
-calltrail analyze  [-C dir] [-algo vta|cha|static] [-tags t] [-o raw.json] [patterns...]
+calltrail analyze  [-C dir] [-algo vta|cha|static] [-tags t] [-entry E] [-o raw.json] [patterns...]
 calltrail annotate [-rules rules.json] [-o model.json] raw.json
 calltrail view     [-rules rules.json] [-o viewer.html] model.json|raw.json
-calltrail run      [-C dir] [-algo ...] [-tags t] [-rules rules.json] [-out-dir dir] [patterns...]
+calltrail run      [-C dir] [-algo ...] [-tags t] [-entry E] [-rules rules.json] [-out-dir dir] [patterns...]
 calltrail demo     ...  [-o out.html]        # 只要 html
 ```
 
 `view` 接受 `model.json` 或 `raw.json`（后者先自动加工）；`-rules` 只对 `raw.json` 有效，规则已经在 model 里时拒绝，避免两处规则互相打架。
 
-## 这次一起做的
+## 设计取舍
 
 - **分析器不再丢低信号依赖**（原来在分析阶段就把 `fmt` 等去掉了，这是取舍，不该在原始层）。代价：x/tools 的 `graph.json` 从 2602 KB 变成约 3.0 MB，边 7512 → 9060，边界 43 → 69；多出来的几乎都是 `low-signal`，默认隐藏。同时多出 20 个只碰 `flag` 之类的 `init` 节点，由加工层隐藏。
-- **前端的取舍挪到了加工层**：原来写在前端 JS 里的“默认折叠哪些边”变成了 model 里的 `hidden_by`，前端按 `policy` 生成开关。
+- **展示上的取舍放在加工层**：原来写在前端 JS 里的“默认折叠哪些边”变成了 model 里的 `hidden_by`，前端按 `policy` 生成开关。
 - **浅色模式**：见下。
 
 ## 浅色模式
@@ -117,5 +119,6 @@ calltrail demo     ...  [-o out.html]        # 只要 html
 
 - **Archify 适配器**（视图层的第二个视图）：接口已经留好（读 model、用 `Visible()` 过滤），适配器本身没写。
 - **规则里的“只显示”**（白名单）：现在只有“忽略”。
-- **gRPC / HTTP 入口识别**与“单个接口的完整链路视图”：按你的安排，稍后做；入口识别会作为加工层的一种标注（`entrypoint`）加进来。
+- **gRPC / HTTP 入口识别**与“单个接口的完整链路视图”：计划中；入口识别会作为加工层的一种标注（`entrypoint`）加进来。
 - 用户在界面里设置的规则只存在浏览器本地；要共享给团队需要导出后放进仓库、用 `-rules` 带入。
+- 网页界面目前只有中文。

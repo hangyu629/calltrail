@@ -1,5 +1,7 @@
 # calltrail
 
+[English](README.en.md) | [中文](README.md)
+
 **Go 调用图工具**：用 `go/packages` + SSA（带类型信息的静态分析）从 Go 源码**机械地**提取调用关系，整理成三层产出，再用一个自包含的网页浏览。
 
 *A call-graph explorer for Go. It extracts call relations with real type information (x/tools), keeps facts and presentation apart in three layers, and renders a self-contained HTML page. Written for the moment when code is generated faster than anyone can read it.*
@@ -142,8 +144,9 @@ python3 -m http.server 8000 --directory ./my-service-out    # 访问 http://127.
 
 | 文档 | 内容 |
 |---|---|
-| [docs/architecture.md](docs/architecture.md) | 架构图与各层说明 |
-| [docs/architecture-layers.md](docs/architecture-layers.md) | 三层的字段、规则格式、常见依赖的三种处理办法、入口与可达性 |
+| [docs/architecture.md](docs/architecture.md)（[English](docs/architecture.en.md)） | 架构图与各层说明 |
+| [docs/architecture-layers.md](docs/architecture-layers.md)（[English](docs/architecture-layers.en.md)） | 三层的字段、规则格式、常见依赖的三种处理办法、入口与可达性 |
+| [docs/validation.en.md](docs/validation.en.md) | 验证方法与数字的英文摘要（详细记录见下面三份） |
 | [docs/precision-audit-2026-11-05.md](docs/precision-audit-2026-11-05.md) | 精度抽查：多余的边有多少、集中在哪 |
 | [docs/recall-check-2026-11-05.md](docs/recall-check-2026-11-05.md) | 漏边验证：用运行时调用栈核对静态图 |
 | [docs/generics-validation-2026-11-05.md](docs/generics-validation-2026-11-05.md) | 在真实的泛型项目上的验证 |
@@ -160,6 +163,7 @@ go test ./...        # 分析器、加工层的测试（含泛型、入口、规
 
 - 接口分发、函数值调用是静态分析的近似：会有多余的边（已标记并默认折叠），也会漏掉一些情况；数据见 `docs/`。
 - 「疑似未使用」不是死代码的证明：按名字的反射、cgo 导出没有建模。
+- 网页界面目前只有中文，还没有语言切换。
 - 还没做：Archify 等其它视图的导出、gRPC / HTTP 入口识别。
 
 ## 目录

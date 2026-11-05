@@ -1,11 +1,13 @@
 # 漏边验证：用运行时调用关系对照静态图（spike，2026-11-05）
 
+> English summary: [validation.en.md](validation.en.md)
+
 **问题**：静态图有没有漏掉真实存在的调用？之前的精度抽查只能发现多余的边，发现不了缺失的边。
 
 **方法**
 1. [tools/recall/instrument](../tools/recall/instrument/main.go) 复制 x/tools 并给每个函数入口插桩（4059 个函数，生成文件除外）。每个调用点第一次执行时，记录完整调用栈。
 2. 用插桩版 `deadcode`（`./...`、`-test ./...`、`-json`）和 `callgraph`（static / cha / rta / vta 四种算法）分析本项目，共 7 次运行。
-3. [tools/recall/compare.py](../tools/recall/compare.py) 把每次调用的“最近自有调用方 → 被调函数”换算成图里的函数 ID，查静态图 `graph.json`（x/tools 的 `./cmd/...`，VTA）里有没有这条边。如果两者之间隔着标准库等外部帧，单独记为“经由外部代码回调”。
+3. [tools/recall/compare.py](../tools/recall/compare.py) 把每次调用的“最近自有调用方 → 被调函数”换算成图里的函数 ID，查静态图 `raw.json`（x/tools 的 `./cmd/...`，VTA）里有没有这条边。如果两者之间隔着标准库等外部帧，单独记为“经由外部代码回调”。
 
 **范围**：1638 个不同的运行时调用对，涉及 569 个函数（占图中 2633 个自有函数的约 22%）。
 
@@ -56,7 +58,7 @@
 go run ./tools/recall/instrument -src <x/tools 副本> -dst <插桩目录>
 cd <插桩目录> && go build -gcflags='golang.org/x/tools/...=-l' -o <bin>/deadcode ./cmd/deadcode   # callgraph 同理
 CALLTRAIL_TRACE=trace.txt <bin>/deadcode ./...                                                          # 多次运行会追加
-python3 -I tools/recall/compare.py graph.json trace.txt golang.org/x/tools
+python3 -I tools/recall/compare.py raw.json trace.txt golang.org/x/tools
 ```
 
 ---
@@ -91,7 +93,7 @@ python3 -I tools/recall/compare.py graph.json trace.txt golang.org/x/tools
 | 经由外部回调召回 | 5 / 16（31%） | **18 / 19（95%）** |
 | 运行过却走不到的函数 | 22 | **0** |
 
-这次独立验证还抓到一个我自己引入的 bug：名为 `init` 的**方法**（如 `(*ProcessEnv).init`）被当成包初始化函数排除了，已修复。
+这次独立验证还抓到修复过程中引入的一个 bug：名为 `init` 的**方法**（如 `(*ProcessEnv).init`）被当成包初始化函数排除了，已修复。
 
 **图的变化**（x/tools `./cmd/...`）：`unused` 从 21 降到 6；`registers` 边从 5 增到 214（201 条隐式接口、6 条反射、7 条显式注册）；新增 21 个 `init` 节点；`api` 从 417 降到 315，其中 97 个改标 `implicit`。
 
@@ -146,7 +148,7 @@ python3 -I tools/recall/compare.py graph.json trace.txt golang.org/x/tools
 
 ## 支持泛型（同日）
 
-**先更正上一节的错误结论。** 我当时认为 `transpose[NodeID].unwrapPreservingNodes` 在 `compact.go:45` 被调用、图里漏了边。用 SSA 实测后发现不是：
+**先更正上一节的错误结论。** 此前认为 `transpose[NodeID].unwrapPreservingNodes` 在 `compact.go:45` 被调用、图里漏了边。用 SSA 实测后发现不是：
 
 - 调用点 `g2.unwrapPreservingNodes()` 的接口 `nodePreserving` 要求方法返回 `Graph[int]`。
 - 整个 `./cmd/...` 里只实例化过 `transpose[string]`，它不满足 `nodePreserving`。
