@@ -26,43 +26,35 @@ calltrail 把 Go 代码里的调用关系**机械地**提取出来，整理成�
 ## 整体：三层产出
 
 ```mermaid
-flowchart LR
-    SRC["Go 源码<br/>(一个 module)"]
+flowchart TB
+    SRC["Go 源码（一个 module）"]
     ENTRY["-entry<br/>文件 / 包 / 函数"]
     RULES["rules.json<br/>忽略规则"]
 
-    subgraph L1["第 1 层：分析器 internal/analyze"]
-        direction TB
-        A1["go/packages 加载<br/>SSA 构建<br/>调用图 CHA / VTA"]
-        A2["只留自有代码<br/>外部调用归成依赖节点"]
-        A1 --> A2
+    subgraph L1["第 1 层 · 分析器 internal/analyze"]
+        A["go/packages 加载 → SSA → 调用图（CHA / VTA）<br/>只留自有代码，外部调用归成依赖节点"]
     end
-
-    subgraph L2["第 2 层：加工层 internal/model"]
-        direction TB
-        M1["标注：模块 / internal / 标签<br/>扇入 / 可达性"]
-        M2["内置隐藏策略<br/>带原因"]
-        M1 --> M2
-    end
-
-    subgraph L3["第 3 层：视图 internal/render"]
-        direction TB
-        V1["自研前端<br/>ELK 布局 + SVG"]
-    end
-
     RAW[("raw.json<br/>事实")]
-    MODEL[("model.json<br/>事实 + 标注 + 规则")]
-    HTML[("viewer.html<br/>自包含页面")]
-    ARCH["Archify 导出<br/>（计划中）"]
 
-    SRC --> A1
-    ENTRY -.-> A1
-    A2 --> RAW
-    RAW --> M1
-    RULES -.-> M1
-    M2 --> MODEL
-    MODEL --> V1
-    V1 --> HTML
+    subgraph L2["第 2 层 · 加工层 internal/model"]
+        M["标注：模块 / internal / 标签 / 扇入 / 可达性<br/>内置隐藏策略（每项带原因）"]
+    end
+    MODEL[("model.json<br/>事实 + 标注 + 规则")]
+
+    subgraph L3["第 3 层 · 视图 internal/render"]
+        V["自研前端：ELK 布局 + SVG<br/>聚焦 / 过滤 / 深浅色"]
+    end
+    HTML[("viewer.html<br/>自包含页面")]
+    ARCH["Archify 等其它视图<br/>（计划中）"]
+
+    SRC --> A
+    ENTRY -.-> A
+    A --> RAW
+    RAW --> M
+    RULES -.-> M
+    M --> MODEL
+    MODEL --> V
+    V --> HTML
     MODEL -.-> ARCH
 ```
 
@@ -78,62 +70,30 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    S0["Options：目录 / 包模式 / tags / 算法 / entry"]
-    S1["go/packages 加载<br/>类型信息 + 依赖 + module"]
-    S2["识别生成文件<br/>（模块内所有包）"]
-    S3["构建 SSA<br/>泛型实例化"]
-    S4{"算法"}
-    S5a["static"]
-    S5b["CHA"]
-    S5c["VTA<br/>以 CHA 为初始图"]
-    S6["去掉合成节点"]
-    S7["自有函数集合<br/>闭包并入外层 / 泛型实例折叠成原型<br/>init 合并成 pkg.init / 生成代码剔除"]
-    S8["遍历每个函数的每个调用点"]
-    S9["边的分类（见下图）"]
-    S10["汇总<br/>标记按“所有调用点都满足”才成立<br/>隐式边限量"]
-    S11["role 计算 / init 节点 / 外部依赖按 module 合并"]
-    S12["入口解析 → meta.entries"]
-    S13[("raw.json")]
+    P1["1 · 加载<br/>go/packages：类型信息、依赖、module<br/>识别生成文件（模块内所有包）"]
+    P2["2 · SSA 与调用图<br/>泛型实例化后构建 SSA<br/>算法：static / CHA / VTA（以 CHA 为初始图）<br/>去掉合成节点"]
+    P3["3 · 自有函数集合<br/>闭包并入外层、泛型实例折叠成原型<br/>init 合并成 pkg.init、生成代码剔除"]
+    P4["4 · 逐个调用点分类<br/>（见下图）"]
+    P5["5 · 汇总<br/>标记只在“所有调用点都满足”时才成立<br/>隐式边限量"]
+    P6["6 · 收尾<br/>role / init 节点 / 外部依赖按 module 合并<br/>解析 -entry 得到 meta.entries"]
+    OUT[("raw.json")]
 
-    S0 --> S1 --> S2 --> S3 --> S4
-    S4 --> S5a
-    S4 --> S5b
-    S4 --> S5c
-    S5a --> S6
-    S5b --> S6
-    S5c --> S6
-    S6 --> S7 --> S8 --> S9 --> S10 --> S11 --> S12 --> S13
+    P1 --> P2 --> P3 --> P4 --> P5 --> P6 --> OUT
 ```
 
 ### 一个调用点会变成哪些边
 
 ```mermaid
-flowchart TD
+flowchart LR
     SITE["一个调用点"]
-    D1{"静态可确定的被调函数？"}
-    OWN["自有 → 自有的边"]
-    DIRECT["direct"]
-    DYN["dynamic<br/>带候选数 + 接口名"]
-    CB["callback<br/>被调的是定义在别处的闭包"]
-    FB["VTA 完全解不出来<br/>回退到 CHA，标 cha-fallback"]
-    EXT["外部边界边<br/>按调用点归类，不按解析出的实现"]
-    REG["registers<br/>自有函数值传给外部函数"]
-    REFL["registers + reflect<br/>自有值交给 text/template"]
-    IMPL["registers + implicit-iface<br/>自有类型转成外部接口 / any<br/>外部代码可能调用它的方法"]
-    LINK["direct + linkname<br/>无函数体声明按 go:linkname 链接"]
+    OWN["调到自有函数<br/>direct：静态可确定<br/>dynamic：接口 / 函数值，带候选数<br/>callback：调的是别处定义的闭包<br/>cha-fallback：VTA 一个都没解出，用类层次分析代替"]
+    EXT["调到外部包<br/>boundary：按调用点归类<br/>（不按解析出的实现）"]
+    ESC["自有值交给外部代码<br/>registers：函数值传给外部函数<br/>registers + reflect：交给 text/template<br/>registers + implicit-iface：转成外部接口 / any"]
+    LINK["go:linkname<br/>direct + linkname：无函数体的声明<br/>按链接指令连到真正的函数"]
 
-    SITE --> D1
-    D1 -->|"是"| DIRECT
-    D1 -->|"否：接口 / 函数值"| DYN
-    DYN -->|"VTA 无结果"| FB
     SITE --> OWN
-    OWN --> DIRECT
-    OWN --> DYN
-    OWN --> CB
     SITE --> EXT
-    SITE --> REG
-    SITE --> REFL
-    SITE --> IMPL
+    SITE --> ESC
     SITE --> LINK
 ```
 
@@ -225,31 +185,14 @@ classDiagram
 ```mermaid
 flowchart LR
     RAW[("raw.json")]
+    ANN["Annotate<br/><br/>包 / 函数：module、internal、tags<br/>外部依赖：std 或第三方 module、类别、低信号标签<br/>扇入：不同自有调用方的个数（猜测的边不算）<br/>可达性：从入口和 init 出发，沿非猜测的边<br/>默认隐藏：每个节点 / 边一个原因"]
     RULEFILE["rules.json<br/>（可选）"]
-
-    subgraph ANN["Annotate"]
-        direction TB
-        N1["包 / 函数：module、internal、tags"]
-        N2["外部依赖：std 或第三方 module、类别、低信号标签"]
-        N3["扇入：有多少个不同的自有函数调用它<br/>（猜测的边不算）"]
-        N4["可达性：从入口和 init 出发<br/>沿非猜测的边"]
-        N5["默认隐藏：每个节点 / 边一个原因"]
-    end
-
     MODEL[("model.json")]
-    VIS["Visible(opts)<br/>静态导出用：原因开关 / 规则 / 扇入阈值 / 只看可达"]
+    VIS["Visible(opts)<br/>静态导出用：原因开关 / 规则 /<br/>扇入阈值 / 只看可达"]
 
-    RAW --> N1
-    RAW --> N2
-    RAW --> N3
-    RAW --> N4
-    RAW --> N5
+    RAW --> ANN
     RULEFILE -.-> MODEL
-    N1 --> MODEL
-    N2 --> MODEL
-    N3 --> MODEL
-    N4 --> MODEL
-    N5 --> MODEL
+    ANN --> MODEL
     MODEL --> VIS
 ```
 
@@ -267,37 +210,25 @@ flowchart LR
 ```mermaid
 flowchart TD
     M[("model.json<br/>内嵌在 viewer.html 里")]
-    ST["状态 S<br/>模式 / 展开的包 / 选中 / 焦点 / 阈值 / 规则"]
     LS[("浏览器 localStorage<br/>规则 / 阈值 / 主题")]
-
-    subgraph HIDE["决定画什么"]
-        direction TB
-        H1["内置隐藏原因<br/>（每个原因一个开关）"]
-        H2["用户规则：module / package / function / tag"]
-        H3["扇入阈值：外部依赖 / 自有函数"]
-        H4["入口可达性"]
-        H1 --> H5["可见的包 / 函数 / 依赖 / 边"]
-        H2 --> H5
-        H3 --> H5
-        H4 --> H5
-    end
-
-    FOCUS["聚焦：从一个节点出发的 BFS<br/>下游 N 层 / 全部，上游 M 层"]
-    BUILD["build：节点 + 聚合边<br/>包 = 嵌套分组"]
-    ELK["ELK 布局<br/>分层 + 正交走线<br/>异步，结果按状态缓存"]
-    SVG["SVG 渲染<br/>CSS 变量 = 深色 / 浅色"]
-    PANEL["侧栏：详情 / 调用点 / 调用方 / 搜索<br/>过滤面板"]
+    ST["状态<br/>模式 / 展开的包 / 选中 / 焦点"]
+    HIDE["决定画什么<br/>内置隐藏原因（每个原因一个开关）<br/>用户规则：module / package / function / tag<br/>扇入阈值：外部依赖 / 自有函数<br/>入口可达性"]
+    FOCUS["聚焦：从一个节点出发的 BFS<br/>下游 N 层或全部，上游 M 层"]
+    BUILD["build：节点 + 聚合边，包是嵌套分组"]
+    ELK["ELK 布局：分层 + 正交走线<br/>异步，结果按状态缓存"]
+    SVG["SVG 渲染<br/>CSS 变量决定深色 / 浅色"]
+    PANEL["侧栏与过滤面板<br/>详情 / 调用点 / 调用方 / 搜索 / 规则"]
 
     M --> ST
     LS <--> ST
     ST --> HIDE
-    H5 --> FOCUS
+    HIDE --> FOCUS
     FOCUS --> BUILD
     BUILD --> ELK
     ELK --> SVG
+    SVG -->|"选中 / 展开 / 双击"| ST
     ST --> PANEL
-    PANEL -->|"点击 / 双击 / 添加规则"| ST
-    SVG -->|"选中 / 展开"| ST
+    PANEL -->|"添加规则 / 改阈值"| ST
 ```
 
 要点：
